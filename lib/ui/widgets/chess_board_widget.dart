@@ -32,6 +32,46 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
   /// Legal moves available from [_selectedSquare].
   List<Move> _legalMovesFromSelection = [];
 
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_clearStaleSelectionOnNewGame);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChessBoardWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_clearStaleSelectionOnNewGame);
+      widget.controller.addListener(_clearStaleSelectionOnNewGame);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_clearStaleSelectionOnNewGame);
+    super.dispose();
+  }
+
+  /// [_selectedSquare] and [_legalMovesFromSelection] are local UI
+  /// state, separate from [GameController] -- so calling `restart()`
+  /// resets the board's pieces but does NOT automatically clear a
+  /// square the player had selected right before restarting. Without
+  /// this, "New Game" could leave a stale selection highlight (and a
+  /// stale legal-move list) pointing at a square from the previous
+  /// game. Listening for the move history becoming empty is a reliable
+  /// signal that a fresh game just started, independent of *how* it
+  /// started (Restart button, New Game button, or the end-of-game
+  /// dialog's New Game action all funnel through the same reset).
+  void _clearStaleSelectionOnNewGame() {
+    if (widget.controller.state.moveHistory.isEmpty && _selectedSquare != null) {
+      setState(() {
+        _selectedSquare = null;
+        _legalMovesFromSelection = [];
+      });
+    }
+  }
+
   void _onSquareTapped(Position tapped) {
     final state = widget.controller.state;
 
@@ -144,6 +184,12 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
           checkedKingSquare = Board.findKing(state, state.turnToMove);
         }
 
+        // The origin and destination of the most recently played move
+        // (either side), highlighted so the player can see at a
+        // glance what just changed -- null before any move is made.
+        final lastMove =
+            state.moveHistory.isNotEmpty ? state.moveHistory.last : null;
+
         return LayoutBuilder(
           builder: (context, constraints) {
             final boardSize = constraints.maxWidth < constraints.maxHeight
@@ -173,6 +219,9 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
                           isLegalMoveTarget: _legalMovesFromSelection
                               .any((m) => m.to == position),
                           isInCheck: checkedKingSquare == position,
+                          isLastMove: lastMove != null &&
+                              (lastMove.from == position ||
+                                  lastMove.to == position),
                           onTap: () => _onSquareTapped(position),
                           child: piece != null
                               ? ChessPieceWidget(

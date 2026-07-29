@@ -21,6 +21,10 @@ class ChessSquareWidget extends StatelessWidget {
   /// Whether this square holds a king that is currently in check.
   final bool isInCheck;
 
+  /// Whether this square was the origin or destination of the most
+  /// recently played move (either side).
+  final bool isLastMove;
+
   /// Called when the user taps this square.
   final VoidCallback? onTap;
 
@@ -31,6 +35,7 @@ class ChessSquareWidget extends StatelessWidget {
     this.isSelected = false,
     this.isLegalMoveTarget = false,
     this.isInCheck = false,
+    this.isLastMove = false,
     this.onTap,
   });
 
@@ -48,6 +53,10 @@ class ChessSquareWidget extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
+            // Last-move tint sits at the very bottom of the stack, so
+            // it colors the empty parts of the square while the piece
+            // (drawn next) remains fully legible on top of it.
+            if (isLastMove) _buildLastMoveOverlay(),
             if (child != null) child!,
             if (isInCheck) _buildCheckOverlay(),
             if (isSelected) _buildSelectionOverlay(),
@@ -55,6 +64,12 @@ class ChessSquareWidget extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLastMoveOverlay() {
+    return Positioned.fill(
+      child: Container(color: AppTheme.lastMoveHighlightColor),
     );
   }
 

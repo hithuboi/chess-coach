@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:chess_app/engine/chess_engine.dart';
 import 'package:chess_app/engine/simple_engine.dart';
 import 'package:chess_app/game_logic/game_controller.dart';
+import 'package:chess_app/game_logic/game_save_service.dart';
 import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/ui/widgets/chess_board_widget.dart';
@@ -23,6 +24,7 @@ class _GameScreenState extends State<GameScreen> {
   final GameController _controller = GameController();
   final ChessEngine _engine =
       SimpleEngine(searchDepth: defaultEngineSearchDepth);
+  final GameSaveService _saveService = const GameSaveService();
 
   /// v0.1 fixes the human as White and the computer as Black.
   static const PieceColor _humanColor = PieceColor.white;
@@ -69,10 +71,9 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
-  /// Shows a modal summarizing how the game ended, with a prominent
-  /// "New Game" action so the next step is always obvious — rather
-  /// than relying on the player to notice the small status banner and
-  /// find the Restart button themselves.
+  /// Shows a modal summarizing how the game ended, with three clear
+  /// next steps: save the finished game, dismiss to review the board,
+  /// or start a new game immediately.
   Future<void> _showGameOverDialog(GameStatus status, PieceColor turnToMove) {
     final (title, message) = switch (status) {
       GameStatus.checkmate => (
@@ -98,17 +99,21 @@ class _GameScreenState extends State<GameScreen> {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => _onSaveGame(),
+            child: const Text('Save Game'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Review Board'),
           ),
           FilledButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               _onRestart();
             },
             child: const Text('New Game'),
@@ -118,14 +123,37 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  /// Saves the current game's move history to disk. Does NOT close the
+  /// game-over dialog -- the player may still want to review the board
+  /// or start a new game afterward, so saving is a side action rather
+  /// than something that advances the flow on its own.
+  Future<void> _onSaveGame() async {
+    try {
+      final path = await _saveService.saveGame(
+        moveHistory: _controller.moveHistory,
+        finalStatus: _controller.state.status,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Game saved to $path')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save the game.')),
+      );
+    }
+  }
+
   /// Minimum time the computer's move is held before being applied to
   /// the board, regardless of how fast it was actually calculated.
   /// This is purely a pacing delay for the human player's benefit —
-  /// it gives them a moment to register the board *before* their own
-  /// move, and it means the opponent's reply never feels instantaneous
-  /// even when [SimpleEngine] resolves in a few milliseconds. The
-  /// human's own moves are never delayed by this — only the bot's.
-  static const Duration _minimumBotMoveDelay = Duration(milliseconds: 400);
+  /// it gives them a moment to register the board *before* the
+  /// opponent replies, and it means the opponent's reply never feels
+  /// instantaneous even when [SimpleEngine] resolves in a few
+  /// milliseconds. The human's own moves are never delayed by this —
+  /// only the bot's.
+  static const Duration _minimumBotMoveDelay = Duration(milliseconds: 900);
 
   Future<void> _triggerComputerMove() async {
     setState(() => _computerIsThinking = true);
@@ -134,7 +162,7 @@ class _GameScreenState extends State<GameScreen> {
 
     // Run the actual engine search and the minimum-delay timer at the
     // same time, then wait for whichever finishes last. A fast engine
-    // response still waits out the full 400ms; a slow engine response
+    // response still waits out the full delay; a slow engine response
     // is never held up any further than it already takes. Both
     // futures are explicitly typed as Future<Move?> (the delay future
     // just resolves to null) so they combine cleanly in one list.
@@ -161,6 +189,11 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  /// Starts a fresh game. Safe to call from anywhere (the end-of-game
+  /// dialog, the always-visible New Game button, or the controls bar's
+  /// Restart) -- always resets every piece of screen-level state, so
+  /// there's exactly one reset path rather than several that could
+  /// drift out of sync with each other.
   void _onRestart() {
     setState(() {
       _computerIsThinking = false;
@@ -255,6 +288,19 @@ class _GameScreenState extends State<GameScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildStatusBanner(context, state.status, state.turnToMove),
+            // Always-visible New Game action once the game has ended --
+            // present directly on the main screen (not just inside the
+            // dialog the player may have already dismissed), so there
+            // is never a point after a finished game where starting a
+            // new one requires hunting for a button.
+            if (state.isGameOver) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _onRestart,
+                icon: const Icon(Icons.add),
+                label: const Text('New Game'),
+              ),
+            ],
             const SizedBox(height: 12),
             Expanded(
               child: MoveHistoryPanel(moves: _controller.moveHistory),

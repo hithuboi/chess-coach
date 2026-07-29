@@ -7,10 +7,10 @@ class AppTheme {
   static const Color _seedColor = Color(0xFF2E5339);
 
   /// Light board square color.
-  static const Color lightSquareColor = Color(0xFFEDE6D6);
+  static const Color lightSquareColor = Color(0xFF707070);
 
-  /// Dark board square color.
-  static const Color darkSquareColor = Color(0xFF7A8B6F);
+  //// Dark board square colour
+  static const Color darkSquareColor  = Color(0xFFD8D8D8);
 
   /// Highlight color for the currently selected square.
   static const Color selectedSquareColor = Color(0xFFF6C453);
@@ -20,6 +20,11 @@ class AppTheme {
 
   /// Highlight color for a king currently in check.
   static const Color checkHighlightColor = Color(0x88D32F2F);
+
+  /// Highlight color for the origin and destination squares of the
+  /// most recently played move (either side), so the player can see
+  /// at a glance what just changed on the board.
+  static const Color lastMoveHighlightColor = Color(0x55F6C453);
 
   /// The app's light theme.
   static ThemeData get light => _buildTheme(Brightness.light);
