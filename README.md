@@ -123,7 +123,6 @@ restructuring existing code:
 - Coach AI (a new `ChessEngine` implementation)
 - Adaptive difficulty (parameterizing/wrapping `SimpleEngine`)
 - Themes (extending `app_theme.dart`'s centralized styling)
-- Saved games (serializing `GameState`)
 - Settings (human color, engine depth, etc. are currently hardcoded
   constants in `game_screen.dart`, ready to become user-configurable)
 
