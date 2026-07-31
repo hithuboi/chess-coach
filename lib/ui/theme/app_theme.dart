@@ -7,10 +7,10 @@ class AppTheme {
   static const Color _seedColor = Color(0xFF2E5339);
 
   /// Light board square color.
-  static const Color lightSquareColor = Color(0xFF707070);
+  static const Color lightSquareColor = Color(0xFFE0E0E0);
 
-  //// Dark board square colour
-  static const Color darkSquareColor  = Color(0xFFD8D8D8);
+  /// Dark board square color.
+  static const Color darkSquareColor = Color(0xFF424242);
 
   /// Highlight color for the currently selected square.
   static const Color selectedSquareColor = Color(0xFFF6C453);
@@ -31,7 +31,7 @@ class AppTheme {
 
   /// The app's dark theme.
   static ThemeData get dark => _buildTheme(Brightness.dark);
-
+ 
   static ThemeData _buildTheme(Brightness brightness) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: _seedColor,
@@ -43,8 +43,8 @@ class AppTheme {
       colorScheme: colorScheme,
       brightness: brightness,
       appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
-        foregroundColor: colorScheme.onSurface,
+        backgroundColor: colorScheme.onSurface,
+        foregroundColor:  colorScheme.surface,
         elevation: 0,
         scrolledUnderElevation: 1,
         centerTitle: false,

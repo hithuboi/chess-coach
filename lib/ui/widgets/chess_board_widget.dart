@@ -197,16 +197,27 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
                 : constraints.maxHeight;
             final squareSize = boardSize / 8;
 
+            // When the human plays Black, the board is drawn rotated
+            // 180 degrees -- Black's home rank at the bottom, matching
+            // how a physical board looks from that side of the table.
+            // Only the *rendering order* changes here; every square's
+            // logical Position (and therefore tap handling, legality,
+            // and highlighting) is untouched, since `position` below
+            // is still the real board coordinate regardless of where
+            // on screen it happens to be drawn.
+            final isFlipped = widget.humanColor == PieceColor.black;
+
             return SizedBox(
               width: boardSize,
               height: boardSize,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: List.generate(8, (displayRow) {
-                  final rank = 7 - displayRow;
+                  final rank = isFlipped ? displayRow : (7 - displayRow);
                   return Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: List.generate(8, (file) {
+                    children: List.generate(8, (displayCol) {
+                      final file = isFlipped ? (7 - displayCol) : displayCol;
                       final position = Position(file, rank);
                       final piece = state.pieceAt(position);
 

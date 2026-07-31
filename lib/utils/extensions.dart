@@ -12,8 +12,9 @@ extension PieceColorDisplay on PieceColor {
 
 /// Convenience helpers for [Position] that are useful for UI rendering.
 extension PositionDisplay on Position {
-  /// True if this square is a "light" square on a standard board.
-  bool get isLightSquare => (file + rank).isEven;
+  /// True if this square is a "light" square on a standard board,
+  /// using the standard convention that a1 is a dark square.
+  bool get isLightSquare => (file + rank).isOdd;
 }
 
 /// A single row of move history: White's move and (if played) Black's

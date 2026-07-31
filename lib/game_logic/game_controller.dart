@@ -24,6 +24,14 @@ class GameController extends ChangeNotifier {
   /// Whether at least one move can currently be undone.
   bool get canUndo => _undoStack.isNotEmpty;
 
+  /// The state exactly as it was immediately before the most recent
+  /// move was played, or null if no move has been played yet (or the
+  /// game was just restarted). This is the same snapshot [undo] would
+  /// restore -- exposed read-only here so callers (like move-quality
+  /// classification) can compare "before" and "after" a move without
+  /// the controller needing to know anything about why they want it.
+  GameState? get previousState => _undoStack.isEmpty ? null : _undoStack.last;
+
   /// Full move history for the UI's move-history panel.
   List<Move> get moveHistory => _state.moveHistory;
 

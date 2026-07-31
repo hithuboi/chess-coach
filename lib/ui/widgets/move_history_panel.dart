@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:chess_app/engine/move_classifier.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/utils/extensions.dart';
 
-/// Displays the game's move history in standard "1. e4 e5" row format.
+/// Displays the game's move history in standard "1. e4 e5" row format,
+/// with an optional quality tag (Excellent / Good / Mistake / Blunder)
+/// shown next to any move that's been classified.
 class MoveHistoryPanel extends StatefulWidget {
   final List<Move> moves;
 
-  const MoveHistoryPanel({super.key, required this.moves});
+  /// Quality classification for individual moves, keyed by that move's
+  /// index in [moves]. Only moves that have been classified appear
+  /// here -- v0.1 only classifies the human player's moves, so this
+  /// map typically covers roughly every other entry.
+  final Map<int, MoveQuality> moveQualities;
+
+  const MoveHistoryPanel({
+    super.key,
+    required this.moves,
+    this.moveQualities = const {},
+  });
 
   @override
   State<MoveHistoryPanel> createState() => _MoveHistoryPanelState();
@@ -75,6 +88,8 @@ class _MoveHistoryPanelState extends State<MoveHistoryPanel> {
 
   Widget _buildRow(BuildContext context, MoveHistoryRow row) {
     final theme = Theme.of(context);
+    final whiteIndex = (row.moveNumber - 1) * 2;
+    final blackIndex = whiteIndex + 1;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -90,18 +105,66 @@ class _MoveHistoryPanelState extends State<MoveHistoryPanel> {
             ),
           ),
           Expanded(
-            child: Text(
+            child: _buildMoveCell(
+              context,
               row.whiteMove.toSan(),
-              style: theme.textTheme.labelLarge,
+              widget.moveQualities[whiteIndex],
             ),
           ),
           Expanded(
-            child: Text(
-              row.blackMove?.toSan() ?? '',
-              style: theme.textTheme.labelLarge,
-            ),
+            child: row.blackMove != null
+                ? _buildMoveCell(
+                    context,
+                    row.blackMove!.toSan(),
+                    widget.moveQualities[blackIndex],
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMoveCell(
+    BuildContext context,
+    String san,
+    MoveQuality? quality,
+  ) {
+    final theme = Theme.of(context);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(san, style: theme.textTheme.labelLarge),
+        if (quality != null) ...[
+          const SizedBox(width: 6),
+          _buildQualityTag(quality),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildQualityTag(MoveQuality quality) {
+    final (label, color) = switch (quality) {
+      MoveQuality.excellent => ('Excellent', const Color(0xFF2E7D32)),
+      MoveQuality.good => ('Good', const Color(0xFF1976D2)),
+      MoveQuality.mistake => ('Mistake', const Color(0xFFE65100)),
+      MoveQuality.blunder => ('Blunder', const Color(0xFFC62828)),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }

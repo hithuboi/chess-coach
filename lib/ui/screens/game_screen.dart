@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:chess_app/engine/chess_engine.dart';
+import 'package:chess_app/engine/move_classifier.dart';
 import 'package:chess_app/engine/simple_engine.dart';
 import 'package:chess_app/game_logic/game_controller.dart';
 import 'package:chess_app/game_logic/game_save_service.dart';
@@ -25,10 +26,14 @@ class _GameScreenState extends State<GameScreen> {
   final ChessEngine _engine =
       SimpleEngine(searchDepth: defaultEngineSearchDepth);
   final GameSaveService _saveService = const GameSaveService();
+  final MoveClassifier _moveClassifier = const MoveClassifier();
 
-  /// v0.1 fixes the human as White and the computer as Black.
-  static const PieceColor _humanColor = PieceColor.white;
-  static const PieceColor _computerColor = PieceColor.black;
+  /// Which color the human player is currently controlling. Chosen via
+  /// [_promptForColorChoice] at launch and again every time a new game
+  /// starts -- defaults to White only as a placeholder until that
+  /// first choice is made.
+  PieceColor _humanColor = PieceColor.white;
+  PieceColor get _computerColor => _humanColor.opposite;
 
   /// True while the computer is "thinking".
   bool _computerIsThinking = false;
@@ -38,10 +43,20 @@ class _GameScreenState extends State<GameScreen> {
   /// the finished position is still on screen.
   bool _hasShownGameOverDialog = false;
 
+  /// Quality classification for the human player's own moves, keyed by
+  /// that move's index in the controller's move history. Computed
+  /// asynchronously right after each human move so it never delays
+  /// that move's own board update.
+  final Map<int, MoveQuality> _moveQualities = {};
+
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onGameStateChanged);
+    // Ask which color to play as before the very first game, same as
+    // every subsequent "New Game" -- deferred to after the first frame
+    // so the dialog's context is ready.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startNewGameFlow());
   }
 
   @override
@@ -53,12 +68,34 @@ class _GameScreenState extends State<GameScreen> {
   void _onGameStateChanged() {
     final state = _controller.state;
 
+    // Drop classification entries for any moves that no longer exist
+    // (e.g. after an undo) -- cheap, and keeps the map from ever
+    // referring to a move index that's since been replaced.
+    _moveQualities.removeWhere((index, _) => index >= state.moveHistory.length);
+
+    // If the move that was just played belongs to the human, classify
+    // it in the background (after this frame paints) so the move
+    // itself still reflects on the board instantly. Checked before the
+    // isGameOver branch below so a game-ending move (e.g. delivering
+    // checkmate) still gets classified rather than being skipped.
+    final lastMove = state.moveHistory.isNotEmpty ? state.moveHistory.last : null;
+    final previous = _controller.previousState;
+    if (lastMove != null &&
+        previous != null &&
+        lastMove.piece.color == _humanColor) {
+      final moveIndex = state.moveHistory.length - 1;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final quality = _moveClassifier.classify(previous, lastMove);
+        if (quality != null) {
+          setState(() => _moveQualities[moveIndex] = quality);
+        }
+      });
+    }
+
     if (state.isGameOver) {
       if (!_hasShownGameOverDialog) {
         _hasShownGameOverDialog = true;
-        // Defer to after this frame so the final move's board update
-        // (and check-highlight) is visible underneath the dialog
-        // rather than the dialog racing ahead of the last repaint.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _showGameOverDialog(state.status, state.turnToMove);
         });
@@ -69,6 +106,53 @@ class _GameScreenState extends State<GameScreen> {
     if (state.turnToMove == _computerColor && !_computerIsThinking) {
       _triggerComputerMove();
     }
+  }
+
+  /// Asks which color the player wants to play as. Non-dismissible --
+  /// a choice is always required before a game can begin.
+  Future<PieceColor> _promptForColorChoice() async {
+    final choice = await showDialog<PieceColor>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Play as:', textAlign: TextAlign.center),
+        content: SizedBox(
+          width: 2600,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _ColorChoiceButton(
+                    label: 'White',
+                    backgroundColor: const Color(0xFFF8F4EC), 
+                    textColor: Colors.black,
+                    onTap: () =>
+                        Navigator.of(dialogContext).pop(PieceColor.white),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: _ColorChoiceButton(
+                    label: 'Black',
+                    backgroundColor: const Color(0xFF2B2A27),
+                    textColor: Colors.white,
+                    onTap: () =>
+                        Navigator.of(dialogContext).pop(PieceColor.black),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    // barrierDismissible is false, so this should always resolve to a
+    // real choice -- default to White only as an unreachable fallback.
+    return choice ?? PieceColor.white;
   }
 
   /// Shows a modal summarizing how the game ended, with three clear
@@ -101,24 +185,63 @@ class _GameScreenState extends State<GameScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => _onSaveGame(),
-            child: const Text('Save Game'),
+        // Building the buttons here, inside `content`, rather than via
+        // AlertDialog's `actions` -- three buttons with labels this
+        // long ("Save Game", "Review Board", "New Game") often don't
+        // fit the dialog's default width, and Flutter's actions layout
+        // (OverflowBar) silently stacks them into a tall vertical
+        // column instead of shrinking them. Laying them out ourselves
+        // in a fixed-width Row guarantees they stay small and
+        // horizontal regardless of available space.
+        content: SizedBox(
+          width: 320,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(message),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () => _onSaveGame(),
+                      child: const Text('Save', style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child:
+                          const Text('Review', style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        _startNewGameFlow();
+                      },
+                      child: const Text('New Game',
+                          style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Review Board'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _onRestart();
-            },
-            child: const Text('New Game'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -146,13 +269,9 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   /// Minimum time the computer's move is held before being applied to
-  /// the board, regardless of how fast it was actually calculated.
-  /// This is purely a pacing delay for the human player's benefit —
-  /// it gives them a moment to register the board *before* the
-  /// opponent replies, and it means the opponent's reply never feels
-  /// instantaneous even when [SimpleEngine] resolves in a few
-  /// milliseconds. The human's own moves are never delayed by this —
-  /// only the bot's.
+  /// the board, regardless of how fast it was actually calculated --
+  /// purely a pacing delay so the opponent's reply never feels
+  /// instantaneous. The human's own moves are never delayed by this.
   static const Duration _minimumBotMoveDelay = Duration(milliseconds: 900);
 
   Future<void> _triggerComputerMove() async {
@@ -160,12 +279,6 @@ class _GameScreenState extends State<GameScreen> {
 
     final state = _controller.state;
 
-    // Run the actual engine search and the minimum-delay timer at the
-    // same time, then wait for whichever finishes last. A fast engine
-    // response still waits out the full delay; a slow engine response
-    // is never held up any further than it already takes. Both
-    // futures are explicitly typed as Future<Move?> (the delay future
-    // just resolves to null) so they combine cleanly in one list.
     final results = await Future.wait<Move?>([
       _engine.chooseMove(state, _computerColor),
       Future<Move?>.delayed(_minimumBotMoveDelay, () => null),
@@ -189,15 +302,22 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
-  /// Starts a fresh game. Safe to call from anywhere (the end-of-game
-  /// dialog, the always-visible New Game button, or the controls bar's
-  /// Restart) -- always resets every piece of screen-level state, so
-  /// there's exactly one reset path rather than several that could
-  /// drift out of sync with each other.
-  void _onRestart() {
+  /// Starts a brand-new game: asks which color to play as, resets all
+  /// screen-level state, then resets the controller. If the computer
+  /// ends up playing White, [_onGameStateChanged] picks that up
+  /// automatically the moment `restart()` fires its notification (by
+  /// then [_humanColor] is already updated) and kicks off its opening
+  /// move on its own -- no separate trigger needed here, which avoids
+  /// ever starting two concurrent engine searches for the same turn.
+  Future<void> _startNewGameFlow() async {
+    final chosenColor = await _promptForColorChoice();
+    if (!mounted) return;
+
     setState(() {
+      _humanColor = chosenColor;
       _computerIsThinking = false;
       _hasShownGameOverDialog = false;
+      _moveQualities.clear();
     });
     _controller.restart();
   }
@@ -288,27 +408,25 @@ class _GameScreenState extends State<GameScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildStatusBanner(context, state.status, state.turnToMove),
-            // Always-visible New Game action once the game has ended --
-            // present directly on the main screen (not just inside the
-            // dialog the player may have already dismissed), so there
-            // is never a point after a finished game where starting a
-            // new one requires hunting for a button.
             if (state.isGameOver) ...[
               const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: _onRestart,
+                onPressed: _startNewGameFlow,
                 icon: const Icon(Icons.add),
                 label: const Text('New Game'),
               ),
             ],
             const SizedBox(height: 12),
             Expanded(
-              child: MoveHistoryPanel(moves: _controller.moveHistory),
+              child: MoveHistoryPanel(
+                moves: _controller.moveHistory,
+                moveQualities: _moveQualities,
+              ),
             ),
             const SizedBox(height: 12),
             GameControlsBar(
               onUndo: _onUndo,
-              onRestart: _onRestart,
+              onRestart: _startNewGameFlow,
               canUndo: _controller.canUndo && !_computerIsThinking,
             ),
           ],
@@ -356,6 +474,49 @@ class _GameScreenState extends State<GameScreen> {
           color: isProminent ? theme.colorScheme.onPrimaryContainer : null,
         ),
         textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+/// One of the two side-by-side color choice buttons shown by
+/// [_GameScreenState._promptForColorChoice] -- a solid-colored box
+/// with its label rendered in a contrasting color, so "White" reads in
+/// white text and "Black" reads in black text as specified.
+class _ColorChoiceButton extends StatelessWidget {
+  final String label;
+  final Color backgroundColor;
+  final Color textColor;
+  final VoidCallback onTap;
+
+  const _ColorChoiceButton({
+    required this.label,
+    required this.backgroundColor,
+    required this.textColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: backgroundColor,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
