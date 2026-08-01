@@ -233,6 +233,19 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
                           isLastMove: lastMove != null &&
                               (lastMove.from == position ||
                                   lastMove.to == position),
+                          // Rank numbers run down the board's left
+                          // screen edge, file letters along its bottom
+                          // screen edge -- using displayCol/displayRow
+                          // (screen position) rather than file/rank
+                          // (logical position) means these stay on the
+                          // correct physical edges even when the board
+                          // is flipped for a human-plays-Black game.
+                          rankLabel:
+                              displayCol == 0 ? '${rank + 1}' : null,
+                          fileLabel: displayRow == 7
+                              ? String.fromCharCode(
+                                  'a'.codeUnitAt(0) + file)
+                              : null,
                           onTap: () => _onSquareTapped(position),
                           child: piece != null
                               ? ChessPieceWidget(

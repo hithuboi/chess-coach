@@ -4,7 +4,7 @@ import 'package:chess_app/ui/theme/app_theme.dart';
 import 'package:chess_app/utils/extensions.dart';
 
 /// A single square on the chess board: background color, optional
-/// highlight state, and a tap handler.
+/// highlight state, coordinate labels, and a tap handler.
 class ChessSquareWidget extends StatelessWidget {
   /// This square's board coordinate, used for checkerboard coloring.
   final Position position;
@@ -25,6 +25,16 @@ class ChessSquareWidget extends StatelessWidget {
   /// recently played move (either side).
   final bool isLastMove;
 
+  /// Rank label (e.g. "1".."8") to draw in this square's top-left
+  /// corner, shown only for squares along the board's left screen
+  /// edge. Null for every other square.
+  final String? rankLabel;
+
+  /// File label (e.g. "a".."h") to draw in this square's bottom-right
+  /// corner, shown only for squares along the board's bottom screen
+  /// edge. Null for every other square.
+  final String? fileLabel;
+
   /// Called when the user taps this square.
   final VoidCallback? onTap;
 
@@ -36,6 +46,8 @@ class ChessSquareWidget extends StatelessWidget {
     this.isLegalMoveTarget = false,
     this.isInCheck = false,
     this.isLastMove = false,
+    this.rankLabel,
+    this.fileLabel,
     this.onTap,
   });
 
@@ -44,6 +56,15 @@ class ChessSquareWidget extends StatelessWidget {
     final baseColor = position.isLightSquare
         ? AppTheme.lightSquareColor
         : AppTheme.darkSquareColor;
+
+    // Label ink follows the same convention real boards use: it's a
+    // subtle tint of the square's *own* base color (darker text on a
+    // light square, lighter text on a dark square) rather than a
+    // separate accent color, so the coordinates read as printed on
+    // the board itself instead of floating on top of it.
+    final labelColor = position.isLightSquare
+        ? AppTheme.darkSquareColor
+        : AppTheme.lightSquareColor;
 
     return GestureDetector(
       onTap: onTap,
@@ -61,6 +82,8 @@ class ChessSquareWidget extends StatelessWidget {
             if (isInCheck) _buildCheckOverlay(),
             if (isSelected) _buildSelectionOverlay(),
             if (isLegalMoveTarget) _buildLegalMoveMarker(),
+            if (rankLabel != null) _buildRankLabel(labelColor),
+            if (fileLabel != null) _buildFileLabel(labelColor),
           ],
         ),
       ),
@@ -100,6 +123,36 @@ class ChessSquareWidget extends StatelessWidget {
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
           color: AppTheme.legalMoveHighlightColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRankLabel(Color color) {
+    return Positioned(
+      top: 2,
+      left: 4,
+      child: Text(
+        rankLabel!,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileLabel(Color color) {
+    return Positioned(
+      bottom: 2,
+      right: 4,
+      child: Text(
+        fileLabel!,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
         ),
       ),
     );

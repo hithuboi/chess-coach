@@ -43,6 +43,17 @@ class _GameScreenState extends State<GameScreen> {
   /// the finished position is still on screen.
   bool _hasShownGameOverDialog = false;
 
+  /// True while [_onUndo] is actively popping one or more moves off
+  /// the controller. [GameController.undo] fires the same state-change
+  /// notification a real move does, which would otherwise re-enter
+  /// [_onGameStateChanged] mid-undo and let it auto-trigger the
+  /// computer's move (or reclassify a move) before the intended
+  /// two-step undo has finished. This flag suppresses both of those
+  /// side effects for the duration of an undo; [_onUndo] performs its
+  /// own single, explicit check for whether the bot needs to move
+  /// afterward, once the full undo is complete.
+  bool _isUndoing = false;
+
   /// Quality classification for the human player's own moves, keyed by
   /// that move's index in the controller's move history. Computed
   /// asynchronously right after each human move so it never delays
@@ -78,9 +89,12 @@ class _GameScreenState extends State<GameScreen> {
     // itself still reflects on the board instantly. Checked before the
     // isGameOver branch below so a game-ending move (e.g. delivering
     // checkmate) still gets classified rather than being skipped.
+    // Skipped entirely during an undo -- there's no new move to
+    // classify, only an old one being removed.
     final lastMove = state.moveHistory.isNotEmpty ? state.moveHistory.last : null;
     final previous = _controller.previousState;
-    if (lastMove != null &&
+    if (!_isUndoing &&
+        lastMove != null &&
         previous != null &&
         lastMove.piece.color == _humanColor) {
       final moveIndex = state.moveHistory.length - 1;
@@ -103,7 +117,9 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    if (state.turnToMove == _computerColor && !_computerIsThinking) {
+    if (!_isUndoing &&
+        state.turnToMove == _computerColor &&
+        !_computerIsThinking) {
       _triggerComputerMove();
     }
   }
@@ -126,7 +142,7 @@ class _GameScreenState extends State<GameScreen> {
                   padding: const EdgeInsets.only(right: 6),
                   child: _ColorChoiceButton(
                     label: 'White',
-                    backgroundColor: const Color(0xFFF8F4EC), 
+                    backgroundColor: const Color(0xFFF8F4EC),
                     textColor: Colors.black,
                     onTap: () =>
                         Navigator.of(dialogContext).pop(PieceColor.white),
@@ -138,10 +154,10 @@ class _GameScreenState extends State<GameScreen> {
                   padding: const EdgeInsets.only(left: 6),
                   child: _ColorChoiceButton(
                     label: 'Black',
-                    backgroundColor: const Color(0xFF2B2A27),
-                    textColor: Colors.white,
+                    backgroundColor: const Color(0xFF2B2A27), 
+                    textColor: Colors.black,
                     onTap: () =>
-                        Navigator.of(dialogContext).pop(PieceColor.black),
+                        Navigator.of(dialogContext).pop(PieceColor.white),
                   ),
                 ),
               ),
@@ -293,12 +309,48 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  /// Undoes the human's last move together with the computer's reply
+  /// to it, so the human always lands back on their own turn with a
+  /// chance to play something different.
+  ///
+  /// The exact number of moves to pop is computed once, upfront, from
+  /// the move history as it stands right now -- not re-checked after
+  /// each individual undo -- because [GameController.undo] fires the
+  /// same notification a real move does, and re-checking mid-sequence
+  /// previously let that notification's listener react before this
+  /// method finished, causing the bot to immediately replay a move
+  /// that had just been undone (or, in a human-plays-Black game,
+  /// leaving the bot permanently stuck never moving again). See
+  /// [_isUndoing].
   void _onUndo() {
-    // Undo twice so it's always the human's turn again afterward.
-    _controller.undo();
-    if (_controller.state.turnToMove == _computerColor &&
-        _controller.canUndo) {
+    final history = _controller.moveHistory;
+    if (history.isEmpty || _computerIsThinking) return;
+
+    final lastMove = history.last;
+    // Normally the most recent move is the computer's reply, and the
+    // human move right before it should go too. The one exception is
+    // a human-plays-Black game where the computer has only played its
+    // forced opening move and the human hasn't moved at all yet --
+    // there, only that single move exists to undo.
+    final undoCount = (lastMove.piece.color == _computerColor &&
+            history.length >= 2)
+        ? 2
+        : 1;
+
+    _isUndoing = true;
+    for (var i = 0; i < undoCount; i++) {
       _controller.undo();
+    }
+    _isUndoing = false;
+
+    // After undoing, it's almost always the human's turn again. The
+    // one case where it isn't (the human-plays-Black edge case above,
+    // where undoing removed the only move in the game) needs the
+    // computer's opening move re-triggered explicitly, since the
+    // automatic listener was deliberately suppressed during the undo
+    // itself.
+    if (_controller.state.turnToMove == _computerColor && !_computerIsThinking) {
+      _triggerComputerMove();
     }
   }
 

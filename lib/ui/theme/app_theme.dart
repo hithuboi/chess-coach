@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 class AppTheme {
   const AppTheme._();
 
+
+////make this user selectable.
   static const Color _seedColor = Color(0xFF2E5339);
 
   /// Light board square color.
