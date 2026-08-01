@@ -1,4 +1,4 @@
-# Chess (v0.3.0)
+# Chess (v0.4.0)
 
 A cross-platform chess application built with Flutter, targeting **macOS**
 and **iPadOS** as the primary platforms for this release. The codebase is
@@ -31,6 +31,11 @@ iOS, Android, Windows, Linux, and web with minimal extra setup.
 
 - Added piece colour selection, allowing the user to play as either White or Black.
 - Added move classification, categorising moves as "Excellent", "Good", "Mistake", or "Blunder".
+
+## Features Added (v0.4.0)
+
+- Fixed buggy Undo button
+- Implement board coordinate labels (a to h & 1 to 8)
 
 ## Getting Started
 
