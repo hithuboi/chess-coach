@@ -7,7 +7,6 @@ import 'package:chess_app/game_logic/game_save_service.dart';
 import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/ui/widgets/chess_board_widget.dart';
-import 'package:chess_app/ui/widgets/game_controls_bar.dart';
 import 'package:chess_app/ui/widgets/move_history_panel.dart';
 import 'package:chess_app/utils/constants.dart';
 import 'package:chess_app/utils/extensions.dart';
@@ -53,6 +52,26 @@ class _GameScreenState extends State<GameScreen> {
   /// own single, explicit check for whether the bot needs to move
   /// afterward, once the full undo is complete.
   bool _isUndoing = false;
+
+  /// True once the human player has resigned the current game.
+  /// Resignation isn't a concept [GameController]/[GameStatus] models
+  /// (it isn't a rules-derived outcome), so it's tracked purely at the
+  /// screen level -- the board is locked out via [AbsorbPointer] on
+  /// the [ChessBoardWidget] rather than through the controller's own
+  /// `isGameOver` flag.
+  bool _hasResigned = false;
+
+  /// Which color resigned, so the status banner and end-of-game dialog
+  /// can correctly declare the other side the winner. Only meaningful
+  /// when [_hasResigned] is true.
+  PieceColor? _resignedColor;
+
+  /// True once the game has ended by any means -- a real rules-based
+  /// outcome (checkmate, stalemate, a draw) or a resignation. Used
+  /// throughout the UI (locking the board, swapping Resign for New
+  /// Game, the status banner) so every place that needs "is the game
+  /// over" checks both sources the same way.
+  bool get _isGameEffectivelyOver => _controller.state.isGameOver || _hasResigned;
 
   /// Quality classification for the human player's own moves, keyed by
   /// that move's index in the controller's move history. Computed
@@ -154,10 +173,10 @@ class _GameScreenState extends State<GameScreen> {
                   padding: const EdgeInsets.only(left: 6),
                   child: _ColorChoiceButton(
                     label: 'Black',
-                    backgroundColor: const Color(0xFF2B2A27), 
-                    textColor: Colors.black,
+                    backgroundColor: const Color(0xFF2B2A27),
+                    textColor: Colors.white,
                     onTap: () =>
-                        Navigator.of(dialogContext).pop(PieceColor.white),
+                        Navigator.of(dialogContext).pop(PieceColor.black),
                   ),
                 ),
               ),
@@ -173,7 +192,10 @@ class _GameScreenState extends State<GameScreen> {
 
   /// Shows a modal summarizing how the game ended, with three clear
   /// next steps: save the finished game, dismiss to review the board,
-  /// or start a new game immediately.
+  /// or start a new game immediately. Derives the title/message from
+  /// the rules-based [status] -- for a resignation (which isn't a
+  /// [GameStatus]), see [_onResign], which calls [_showEndOfGameDialog]
+  /// directly with its own title/message instead.
   Future<void> _showGameOverDialog(GameStatus status, PieceColor turnToMove) {
     final (title, message) = switch (status) {
       GameStatus.checkmate => (
@@ -196,6 +218,16 @@ class _GameScreenState extends State<GameScreen> {
       _ => ('Game Over', 'The game has ended.'),
     };
 
+    return _showEndOfGameDialog(title: title, message: message);
+  }
+
+  /// The actual end-of-game dialog UI, shared by every way a game can
+  /// end (checkmate, stalemate, a draw, or resignation) -- each caller
+  /// just supplies its own title and message.
+  Future<void> _showEndOfGameDialog({
+    required String title,
+    required String message,
+  }) {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -262,6 +294,46 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  /// Confirms with the player, then ends the game as a resignation.
+  /// Shows the same end-of-game dialog as a real rules-based outcome,
+  /// just with its own title/message -- everything downstream (Save,
+  /// Review, New Game) behaves identically either way.
+  Future<void> _onResign() async {
+    if (_isGameEffectivelyOver) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Are you sure?'),
+        content: const Text('Resigning will end the game immediately.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final resigningColor = _humanColor;
+    setState(() {
+      _hasResigned = true;
+      _resignedColor = resigningColor;
+    });
+
+    await _showEndOfGameDialog(
+      title: 'Resignation',
+      message: '${resigningColor.displayName} resigned — '
+          '${resigningColor.opposite.displayName} wins.',
+    );
+  }
+
   /// Saves the current game's move history to disk. Does NOT close the
   /// game-over dialog -- the player may still want to review the board
   /// or start a new game afterward, so saving is a side action rather
@@ -301,7 +373,7 @@ class _GameScreenState extends State<GameScreen> {
     ]);
     final move = results[0];
 
-    if (!mounted) return;
+    if (!mounted || _hasResigned) return;
     setState(() => _computerIsThinking = false);
 
     if (move != null) {
@@ -369,6 +441,8 @@ class _GameScreenState extends State<GameScreen> {
       _humanColor = chosenColor;
       _computerIsThinking = false;
       _hasShownGameOverDialog = false;
+      _hasResigned = false;
+      _resignedColor = null;
       _moveQualities.clear();
     });
     _controller.restart();
@@ -415,9 +489,12 @@ class _GameScreenState extends State<GameScreen> {
       children: [
         Expanded(
           child: Center(
-            child: ChessBoardWidget(
-              controller: _controller,
-              humanColor: _humanColor,
+            child: AbsorbPointer(
+              absorbing: _isGameEffectivelyOver,
+              child: ChessBoardWidget(
+                controller: _controller,
+                humanColor: _humanColor,
+              ),
             ),
           ),
         ),
@@ -436,9 +513,12 @@ class _GameScreenState extends State<GameScreen> {
         Expanded(
           flex: 3,
           child: Center(
-            child: ChessBoardWidget(
-              controller: _controller,
-              humanColor: _humanColor,
+            child: AbsorbPointer(
+              absorbing: _isGameEffectivelyOver,
+              child: ChessBoardWidget(
+                controller: _controller,
+                humanColor: _humanColor,
+              ),
             ),
           ),
         ),
@@ -460,14 +540,6 @@ class _GameScreenState extends State<GameScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildStatusBanner(context, state.status, state.turnToMove),
-            if (state.isGameOver) ...[
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed: _startNewGameFlow,
-                icon: const Icon(Icons.add),
-                label: const Text('New Game'),
-              ),
-            ],
             const SizedBox(height: 12),
             Expanded(
               child: MoveHistoryPanel(
@@ -476,14 +548,51 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            GameControlsBar(
-              onUndo: _onUndo,
-              onRestart: _startNewGameFlow,
-              canUndo: _controller.canUndo && !_computerIsThinking,
-            ),
+            _buildControlsRow(),
           ],
         );
       },
+    );
+  }
+
+  /// Undo, plus a second button that morphs between Resign (mid-game)
+  /// and New Game (once the game has ended by any means) -- rather
+  /// than showing both a separate always-visible New Game button and
+  /// a mid-game Restart button, there is exactly one slot for "the
+  /// action that ends or restarts the game", so it's always obvious
+  /// which one applies to the current moment.
+  Widget _buildControlsRow() {
+    final gameEnded = _isGameEffectivelyOver;
+    final canUndo = _controller.canUndo && !_computerIsThinking && !gameEnded;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: canUndo ? _onUndo : null,
+          icon: const Icon(Icons.undo),
+          label: const Text('Undo'),
+        ),
+        const SizedBox(width: 12),
+        if (gameEnded)
+          FilledButton.icon(
+            onPressed: _startNewGameFlow,
+            icon: const Icon(Icons.add),
+            label: const Text('New Game'),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: _onResign,
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.red),
+            ),
+            icon: const Icon(Icons.flag, color: Colors.red),
+            label: const Text(
+              'Resign',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+            ),
+          ),
+      ],
     );
   }
 
@@ -493,24 +602,33 @@ class _GameScreenState extends State<GameScreen> {
     PieceColor turnToMove,
   ) {
     final theme = Theme.of(context);
-    final (message, isProminent) = switch (status) {
-      GameStatus.checkmate => (
-          'Checkmate — ${turnToMove.opposite.displayName} wins',
-          true
-        ),
-      GameStatus.stalemate => ('Stalemate — Draw', true),
-      GameStatus.insufficientMaterial => (
-          'Draw — Insufficient material',
-          true
-        ),
-      GameStatus.fiftyMoveRule => ('Draw — Fifty-move rule', true),
-      GameStatus.threefoldRepetition => (
-          'Draw — Threefold repetition',
-          true
-        ),
-      GameStatus.check => ('${turnToMove.displayName} is in check', false),
-      GameStatus.active => ('${turnToMove.displayName} to move', false),
-    };
+    final (message, isProminent) = _hasResigned
+        ? (
+            '${_resignedColor!.displayName} resigned — '
+                '${_resignedColor!.opposite.displayName} wins',
+            true,
+          )
+        : switch (status) {
+            GameStatus.checkmate => (
+                'Checkmate — ${turnToMove.opposite.displayName} wins',
+                true
+              ),
+            GameStatus.stalemate => ('Stalemate — Draw', true),
+            GameStatus.insufficientMaterial => (
+                'Draw — Insufficient material',
+                true
+              ),
+            GameStatus.fiftyMoveRule => ('Draw — Fifty-move rule', true),
+            GameStatus.threefoldRepetition => (
+                'Draw — Threefold repetition',
+                true
+              ),
+            GameStatus.check => (
+                '${turnToMove.displayName} is in check',
+                false
+              ),
+            GameStatus.active => ('${turnToMove.displayName} to move', false),
+          };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
