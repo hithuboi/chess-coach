@@ -1,5 +1,6 @@
 import 'package:chess_app/engine/evaluation.dart';
 import 'package:chess_app/game_logic/board.dart';
+import 'package:chess_app/game_logic/move_generator.dart';
 import 'package:chess_app/game_logic/move_validator.dart';
 import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/game_state.dart';
@@ -119,6 +120,25 @@ class MoveClassifier {
     bool maximizing,
   ) {
     final sideToMove = state.turnToMove;
+
+    // At the search horizon, only "does any legal move exist" matters
+    // (to score checkmate/stalemate correctly) -- not the full list.
+    // Leaf nodes are the most numerous nodes in this tree, so an
+    // early-exit check here (stop at the first legal move found)
+    // instead of always enumerating every legal move is the biggest
+    // single cost saving available.
+    if (remainingDepth == 0) {
+      if (!_hasAnyLegalMove(state, sideToMove)) {
+        final inCheck = MoveValidator.isInCheck(state, sideToMove);
+        if (inCheck) {
+          final mateScore = _infinity - depth;
+          return maximizing ? -mateScore : mateScore;
+        }
+        return 0;
+      }
+      return Evaluation.evaluate(state);
+    }
+
     final legalMoves = MoveValidator.allLegalMoves(state, sideToMove);
 
     if (legalMoves.isEmpty) {
@@ -128,10 +148,6 @@ class MoveClassifier {
         return maximizing ? -mateScore : mateScore;
       }
       return 0;
-    }
-
-    if (remainingDepth == 0) {
-      return Evaluation.evaluate(state);
     }
 
     if (maximizing) {
@@ -157,6 +173,20 @@ class MoveClassifier {
       }
       return value;
     }
+  }
+
+  /// True if [color] has at least one legal move in [state]. Stops at
+  /// the first legal move found rather than generating and validating
+  /// every pseudo-legal move the way [MoveValidator.allLegalMoves]
+  /// does -- this runs once per leaf node (the most numerous node
+  /// type in the tree), and almost every position has plenty of legal
+  /// moves, so the early exit typically fires within the first few
+  /// candidates checked.
+  bool _hasAnyLegalMove(GameState state, PieceColor color) {
+    for (final move in MoveGenerator.allPseudoLegalMoves(state, color)) {
+      if (!MoveValidator.leavesOwnKingInCheck(state, move)) return true;
+    }
+    return false;
   }
 
   GameState _applyMoveToState(GameState state, Move move) {
