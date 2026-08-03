@@ -25,6 +25,10 @@ class ChessSquareWidget extends StatelessWidget {
   /// recently played move (either side).
   final bool isLastMove;
 
+  /// Whether this square is part of the Hint feature's suggested move
+  /// (either the piece's current square or its suggested destination).
+  final bool isHint;
+
   /// Rank label (e.g. "1".."8") to draw in this square's top-left
   /// corner, shown only for squares along the board's left screen
   /// edge. Null for every other square.
@@ -46,6 +50,7 @@ class ChessSquareWidget extends StatelessWidget {
     this.isLegalMoveTarget = false,
     this.isInCheck = false,
     this.isLastMove = false,
+    this.isHint = false,
     this.rankLabel,
     this.fileLabel,
     this.onTap,
@@ -78,6 +83,10 @@ class ChessSquareWidget extends StatelessWidget {
             // it colors the empty parts of the square while the piece
             // (drawn next) remains fully legible on top of it.
             if (isLastMove) _buildLastMoveOverlay(),
+            // Hint tint follows the same treatment -- drawn beneath
+            // the piece so the suggested piece and destination stay
+            // clearly visible through the translucent highlight.
+            if (isHint) _buildHintOverlay(),
             if (child != null) child!,
             if (isInCheck) _buildCheckOverlay(),
             if (isSelected) _buildSelectionOverlay(),
@@ -93,6 +102,12 @@ class ChessSquareWidget extends StatelessWidget {
   Widget _buildLastMoveOverlay() {
     return Positioned.fill(
       child: Container(color: AppTheme.lastMoveHighlightColor),
+    );
+  }
+
+  Widget _buildHintOverlay() {
+    return Positioned.fill(
+      child: Container(color: AppTheme.hintHighlightColor),
     );
   }
 

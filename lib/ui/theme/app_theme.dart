@@ -28,6 +28,13 @@ class AppTheme {
   /// at a glance what just changed on the board.
   static const Color lastMoveHighlightColor = Color(0x55F6C453);
 
+  /// Highlight color for the Hint feature's suggested move -- the
+  /// piece's current square and its suggested destination, both
+  /// tinted the same translucent neon yellow so the suggestion reads
+  /// as a single connected "do this" instruction rather than two
+  /// unrelated highlights.
+  static const Color hintHighlightColor = Color(0x99FFFF00);
+
   /// The app's light theme.
   static ThemeData get light => _buildTheme(Brightness.light);
 

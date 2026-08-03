@@ -79,6 +79,18 @@ class _GameScreenState extends State<GameScreen> {
   /// that move's own board update.
   final Map<int, MoveQuality> _moveQualities = {};
 
+  /// The currently active hint's suggested move, or null if no hint
+  /// has been requested (or it's since been cleared). Computed by
+  /// asking [_engine] -- the same engine that plays the opponent's
+  /// side -- for its best move on the human's behalf, so the hint is
+  /// exactly as strong as the opponent currently being played.
+  Move? _hintMove;
+
+  /// True while a hint is being computed, so the button can't be
+  /// pressed again (and start a second overlapping search) before the
+  /// first one resolves.
+  bool _isComputingHint = false;
+
   @override
   void initState() {
     super.initState();
@@ -97,6 +109,15 @@ class _GameScreenState extends State<GameScreen> {
 
   void _onGameStateChanged() {
     final state = _controller.state;
+
+    // A hint is only valid for the exact position it was computed
+    // for -- the instant that position changes, for any reason (a
+    // move played, an undo, a new game), the suggestion is stale and
+    // must be cleared rather than pointing at squares that no longer
+    // mean what they used to.
+    if (_hintMove != null) {
+      setState(() => _hintMove = null);
+    }
 
     // Drop classification entries for any moves that no longer exist
     // (e.g. after an undo) -- cheap, and keeps the map from ever
@@ -426,6 +447,35 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  /// Asks [_engine] -- the same engine that plays the opponent's side
+  /// -- for its best move on the human's behalf, then highlights that
+  /// move's origin and destination squares on the board. Only
+  /// available on the human's own turn, mid-game, and not while
+  /// another hint is already being computed.
+  Future<void> _onHint() async {
+    final requestState = _controller.state;
+    if (_isGameEffectivelyOver ||
+        _computerIsThinking ||
+        _isComputingHint ||
+        requestState.turnToMove != _humanColor) {
+      return;
+    }
+
+    setState(() => _isComputingHint = true);
+    final move = await _engine.chooseMove(requestState, _humanColor);
+
+    // If the position has since moved on (the player made a move,
+    // undid one, or started a new game while this was computing),
+    // the result no longer applies to anything on screen -- discard
+    // it rather than highlighting squares from a stale position.
+    if (!mounted || !identical(_controller.state, requestState)) return;
+
+    setState(() {
+      _isComputingHint = false;
+      _hintMove = move;
+    });
+  }
+
   /// Starts a brand-new game: asks which color to play as, resets all
   /// screen-level state, then resets the controller. If the computer
   /// ends up playing White, [_onGameStateChanged] picks that up
@@ -494,6 +544,7 @@ class _GameScreenState extends State<GameScreen> {
               child: ChessBoardWidget(
                 controller: _controller,
                 humanColor: _humanColor,
+                hintMove: _hintMove,
               ),
             ),
           ),
@@ -518,6 +569,7 @@ class _GameScreenState extends State<GameScreen> {
               child: ChessBoardWidget(
                 controller: _controller,
                 humanColor: _humanColor,
+                hintMove: _hintMove,
               ),
             ),
           ),
@@ -564,6 +616,10 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildControlsRow() {
     final gameEnded = _isGameEffectivelyOver;
     final canUndo = _controller.canUndo && !_computerIsThinking && !gameEnded;
+    final canHint = !gameEnded &&
+        !_computerIsThinking &&
+        !_isComputingHint &&
+        _controller.state.turnToMove == _humanColor;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -573,7 +629,19 @@ class _GameScreenState extends State<GameScreen> {
           icon: const Icon(Icons.undo),
           label: const Text('Undo'),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
+          onPressed: canHint ? _onHint : null,
+          tooltip: 'Hint',
+          icon: _isComputingHint
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.lightbulb_outline),
+        ),
+        const SizedBox(width: 8),
         if (gameEnded)
           FilledButton.icon(
             onPressed: _startNewGameFlow,

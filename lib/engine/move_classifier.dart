@@ -7,7 +7,12 @@ import 'package:chess_app/models/move.dart';
 import 'package:chess_app/models/position.dart';
 
 /// How a played move compares to the best move available in that
-/// position, from "barely any centipawns lost" to "a serious error".
+/// position. Only the two ends of the spectrum are ever labeled --
+/// [excellent] for a move that's essentially the best available, and
+/// [good] for one that's still clearly strong -- everything in the
+/// broad middle ground is left unclassified (see [classify]) so that
+/// seeing either label actually means something, rather than every
+/// move getting some tag. [mistake] and [blunder] mark real errors.
 enum MoveQuality {
   excellent,
   good,
@@ -53,9 +58,11 @@ class MoveClassifier {
     final legalMoves = MoveValidator.allLegalMoves(stateBeforeMove, color);
     if (legalMoves.isEmpty) return null;
 
-    // A forced move (the only legal option) is never a mistake --
-    // there was nothing else the player could have done.
-    if (legalMoves.length == 1) return MoveQuality.excellent;
+    // A forced move (the only legal option) says nothing about the
+    // player's judgment -- there was no alternative to compare it
+    // against -- so it's left unclassified rather than automatically
+    // credited as Excellent.
+    if (legalMoves.length == 1) return null;
 
     final maximizing = color == PieceColor.white;
     int? bestScore;
@@ -83,9 +90,18 @@ class MoveClassifier {
     final centipawnLoss =
         maximizing ? (bestScore - playedScore) : (playedScore - bestScore);
 
-    if (centipawnLoss <= 15) return MoveQuality.excellent;
-    if (centipawnLoss <= 50) return MoveQuality.good;
-    if (centipawnLoss <= 150) return MoveQuality.mistake;
+    // Excellent and Good are deliberately tight bands -- a move has
+    // to be genuinely close to the best available option to earn
+    // either label, so seeing one means something. Anything falling
+    // in the broad middle ground (not close enough to best to praise,
+    // not bad enough to flag) is left unclassified on purpose: not
+    // every move needs a verdict, and a constant stream of labels on
+    // ordinary moves would just be noise. Mistake and Blunder still
+    // catch real errors at the wider end of the scale.
+    if (centipawnLoss <= 10) return MoveQuality.excellent;
+    if (centipawnLoss <= 30) return MoveQuality.good;
+    if (centipawnLoss <= 120) return null;
+    if (centipawnLoss <= 300) return MoveQuality.mistake;
     return MoveQuality.blunder;
   }
 

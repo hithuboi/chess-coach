@@ -15,10 +15,17 @@ class ChessBoardWidget extends StatefulWidget {
   /// Which color the human player controls.
   final PieceColor humanColor;
 
+  /// The currently active hint's suggested move, if any -- its origin
+  /// and destination squares are highlighted. Owned by the screen
+  /// (which has the engine needed to compute it), not by this widget;
+  /// cleared by the screen the moment any move is actually played.
+  final Move? hintMove;
+
   const ChessBoardWidget({
     super.key,
     required this.controller,
     required this.humanColor,
+    this.hintMove,
   });
 
   @override
@@ -233,6 +240,9 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
                           isLastMove: lastMove != null &&
                               (lastMove.from == position ||
                                   lastMove.to == position),
+                          isHint: widget.hintMove != null &&
+                              (widget.hintMove!.from == position ||
+                                  widget.hintMove!.to == position),
                           // Rank numbers run down the board's left
                           // screen edge, file letters along its bottom
                           // screen edge -- using displayCol/displayRow
