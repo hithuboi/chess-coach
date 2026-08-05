@@ -1,4 +1,4 @@
-# Chess (v0.4.0)
+# Chess (v0.5.0)
 
 A cross-platform chess application built with Flutter, targeting **macOS**
 and **iPadOS** as the primary platforms for this release. The codebase is
@@ -6,6 +6,13 @@ plain Dart/Flutter with no platform-specific code, so it also builds for
 iOS, Android, Windows, Linux, and web with minimal extra setup.
 
 
+
+## Features Added (v0.4.0)
+
+- Revamped New Game functionality
+- Added Review Game feature, enabling the user to review all the moves from the starting move of the game till the ending move.
+
+  
 
 ## Features Added (v0.4.0)
 
