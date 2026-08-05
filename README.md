@@ -9,15 +9,15 @@ iOS, Android, Windows, Linux, and web with minimal extra setup.
 
 ## Features Added (v0.4.0)
 
-- Revamped New Game functionality
+- Revamped New Game functionality with added Resign button.
 - Added Review Game feature, enabling the user to review all the moves from the starting move of the game till the ending move.
 
   
 
 ## Features Added (v0.4.0)
 
-- Fixed buggy Undo button
-- Implement board coordinate labels (a to h & 1 to 8)
+- Fixed buggy Undo button.
+- Implement board coordinate labels (a to h & 1 to 8).
 
 
 
@@ -30,15 +30,15 @@ iOS, Android, Windows, Linux, and web with minimal extra setup.
 
 ## Bug fixes (v0.2.1)
 
-- Fixed an issue with the New Game button
+- Fixed buggy New Game button.
 
 
 
 
 ## Features Added (v0.2.0)
 
-- Save completed games
-- Review saved games using the review board
+- Save completed games.
+- Review the board upon completion of a game.
 
 
 
