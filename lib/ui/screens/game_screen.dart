@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:chess_app/engine/chess_engine.dart';
 import 'package:chess_app/engine/move_classifier.dart';
 import 'package:chess_app/engine/simple_engine.dart';
+import 'package:chess_app/game_logic/board.dart';
 import 'package:chess_app/game_logic/game_controller.dart';
 import 'package:chess_app/game_logic/game_save_service.dart';
 import 'package:chess_app/models/enums.dart';
+import 'package:chess_app/models/game_state.dart';
 import 'package:chess_app/models/move.dart';
+import 'package:chess_app/models/position.dart';
 import 'package:chess_app/ui/widgets/chess_board_widget.dart';
 import 'package:chess_app/ui/widgets/move_history_panel.dart';
 import 'package:chess_app/utils/constants.dart';
@@ -90,6 +93,21 @@ class _GameScreenState extends State<GameScreen> {
   /// pressed again (and start a second overlapping search) before the
   /// first one resolves.
   bool _isComputingHint = false;
+
+  /// The move history of the game being reviewed, snapshotted the
+  /// moment "Review Game" is chosen. Kept separate from the live
+  /// [GameController] so starting a new game afterward never affects
+  /// what's currently being reviewed. Null whenever not in review
+  /// mode.
+  List<Move>? _reviewMoveHistory;
+
+  /// How many moves into [_reviewMoveHistory] the review board is
+  /// currently showing -- 0 is the starting position (before move 1),
+  /// and [_reviewMoveHistory]'s length is the game's final position.
+  /// Null whenever not in review mode.
+  int? _reviewIndex;
+
+  bool get _isReviewingGame => _reviewMoveHistory != null;
 
   @override
   void initState() {
@@ -287,9 +305,12 @@ class _GameScreenState extends State<GameScreen> {
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      child:
-                          const Text('Review', style: TextStyle(fontSize: 13)),
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        _startReviewingGame();
+                      },
+                      child: const Text('Review Game',
+                          style: TextStyle(fontSize: 13)),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -346,6 +367,9 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _hasResigned = true;
       _resignedColor = resigningColor;
+      // A hint requested right before resigning would otherwise still
+      // be highlighted on the board after the game has ended.
+      _hintMove = null;
     });
 
     await _showEndOfGameDialog(
@@ -476,6 +500,80 @@ class _GameScreenState extends State<GameScreen> {
     });
   }
 
+  /// Enters review mode for the game that just ended: snapshots its
+  /// move history and jumps the board back to the starting position,
+  /// ready for the player to step forward through it move by move.
+  void _startReviewingGame() {
+    setState(() {
+      _reviewMoveHistory = List.of(_controller.moveHistory);
+      _reviewIndex = 0;
+      // A hint from right before the game ended (e.g. requested just
+      // before resigning) would otherwise still be sitting on the
+      // board -- irrelevant, and potentially confusing, once review
+      // mode starts showing historical positions instead.
+      _hintMove = null;
+    });
+  }
+
+  void _reviewStepBack() {
+    if (_reviewIndex == null || _reviewIndex! <= 0) return;
+    setState(() => _reviewIndex = _reviewIndex! - 1);
+  }
+
+  void _reviewStepForward() {
+    final history = _reviewMoveHistory;
+    if (history == null || _reviewIndex == null) return;
+    if (_reviewIndex! >= history.length) return;
+    setState(() => _reviewIndex = _reviewIndex! + 1);
+  }
+
+  /// Reconstructs the board exactly as it stood after the first
+  /// [moveCount] moves of [history], by replaying them from the
+  /// standard starting position. Mirrors the same replay approach
+  /// [SimpleEngine] and [MoveClassifier] already use internally for
+  /// their own search -- one self-contained, read-only reconstruction
+  /// rather than a second copy of [GameController]'s live state.
+  GameState _computeReviewState(List<Move> history, int moveCount) {
+    var state = GameState.initial();
+
+    for (var i = 0; i < moveCount; i++) {
+      final move = history[i];
+      final newSquares = Board.applyMove(state, move);
+      final movingColor = move.piece.color;
+
+      Position? newEnPassantTarget;
+      if (move.flag == MoveFlag.doublePawnPush) {
+        final direction = movingColor == PieceColor.white ? -1 : 1;
+        newEnPassantTarget = move.to.offset(0, direction);
+      }
+
+      state = state.copyWith(
+        newSquares: newSquares,
+        turnToMove: movingColor.opposite,
+        moveHistory: history.sublist(0, i + 1),
+        enPassantTarget: newEnPassantTarget,
+        clearEnPassantTarget: newEnPassantTarget == null,
+      );
+    }
+
+    // The replayed moves already recorded whether they gave check or
+    // checkmate at the time they were actually played -- reusing that
+    // here (rather than re-running check detection) is enough to
+    // correctly show the check highlight at the right point in the
+    // replay.
+    if (moveCount > 0) {
+      final lastMove = history[moveCount - 1];
+      final status = lastMove.isCheckmate
+          ? GameStatus.checkmate
+          : lastMove.isCheck
+              ? GameStatus.check
+              : GameStatus.active;
+      state = state.copyWith(status: status);
+    }
+
+    return state;
+  }
+
   /// Starts a brand-new game: asks which color to play as, resets all
   /// screen-level state, then resets the controller. If the computer
   /// ends up playing White, [_onGameStateChanged] picks that up
@@ -493,6 +591,9 @@ class _GameScreenState extends State<GameScreen> {
       _hasShownGameOverDialog = false;
       _hasResigned = false;
       _resignedColor = null;
+      _reviewMoveHistory = null;
+      _reviewIndex = null;
+      _hintMove = null;
       _moveQualities.clear();
     });
     _controller.restart();
@@ -545,6 +646,10 @@ class _GameScreenState extends State<GameScreen> {
                 controller: _controller,
                 humanColor: _humanColor,
                 hintMove: _hintMove,
+                reviewState: _isReviewingGame
+                    ? _computeReviewState(
+                        _reviewMoveHistory!, _reviewIndex ?? 0)
+                    : null,
               ),
             ),
           ),
@@ -570,6 +675,10 @@ class _GameScreenState extends State<GameScreen> {
                 controller: _controller,
                 humanColor: _humanColor,
                 hintMove: _hintMove,
+                reviewState: _isReviewingGame
+                    ? _computeReviewState(
+                        _reviewMoveHistory!, _reviewIndex ?? 0)
+                    : null,
               ),
             ),
           ),
@@ -600,19 +709,18 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            _buildControlsRow(),
+            _isReviewingGame ? _buildReviewControlsRow() : _buildControlsRow(),
           ],
         );
       },
     );
   }
 
-  /// Undo, plus a second button that morphs between Resign (mid-game)
-  /// and New Game (once the game has ended by any means) -- rather
-  /// than showing both a separate always-visible New Game button and
-  /// a mid-game Restart button, there is exactly one slot for "the
-  /// action that ends or restarts the game", so it's always obvious
-  /// which one applies to the current moment.
+  /// Undo, plus Resign while the game is still active. Once the game
+  /// has ended, Hint and Resign both stop being meaningful actions and
+  /// are hidden rather than shown disabled -- the end-of-game dialog's
+  /// own Save/Review Game/New Game buttons are the actual next steps
+  /// at that point, so this row has nothing left to add.
   Widget _buildControlsRow() {
     final gameEnded = _isGameEffectivelyOver;
     final canUndo = _controller.canUndo && !_computerIsThinking && !gameEnded;
@@ -629,26 +737,20 @@ class _GameScreenState extends State<GameScreen> {
           icon: const Icon(Icons.undo),
           label: const Text('Undo'),
         ),
-        const SizedBox(width: 8),
-        IconButton.filledTonal(
-          onPressed: canHint ? _onHint : null,
-          tooltip: 'Hint',
-          icon: _isComputingHint
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.lightbulb_outline),
-        ),
-        const SizedBox(width: 8),
-        if (gameEnded)
-          FilledButton.icon(
-            onPressed: _startNewGameFlow,
-            icon: const Icon(Icons.add),
-            label: const Text('New Game'),
-          )
-        else
+        if (!gameEnded) ...[
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            onPressed: canHint ? _onHint : null,
+            tooltip: 'Hint',
+            icon: _isComputingHint
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.lightbulb_outline),
+          ),
+          const SizedBox(width: 8),
           OutlinedButton.icon(
             onPressed: _onResign,
             style: OutlinedButton.styleFrom(
@@ -660,6 +762,34 @@ class _GameScreenState extends State<GameScreen> {
               style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
             ),
           ),
+        ],
+      ],
+    );
+  }
+
+  /// Shown instead of [_buildControlsRow] while reviewing a finished
+  /// game -- just the two step controls, since Hint and Resign don't
+  /// apply once the game is over and being replayed move by move.
+  Widget _buildReviewControlsRow() {
+    final history = _reviewMoveHistory;
+    final index = _reviewIndex ?? 0;
+    final canGoBack = index > 0;
+    final canGoForward = history != null && index < history.length;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton.filledTonal(
+          onPressed: canGoBack ? _reviewStepBack : null,
+          tooltip: 'Previous move',
+          icon: const Icon(Icons.undo),
+        ),
+        const SizedBox(width: 16),
+        IconButton.filledTonal(
+          onPressed: canGoForward ? _reviewStepForward : null,
+          tooltip: 'Next move',
+          icon: const Icon(Icons.redo),
+        ),
       ],
     );
   }

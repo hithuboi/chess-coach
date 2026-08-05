@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:chess_app/game_logic/board.dart';
 import 'package:chess_app/game_logic/game_controller.dart';
 import 'package:chess_app/models/enums.dart';
+import 'package:chess_app/models/game_state.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/models/position.dart';
 import 'package:chess_app/ui/widgets/chess_piece_widget.dart';
@@ -21,11 +22,21 @@ class ChessBoardWidget extends StatefulWidget {
   /// cleared by the screen the moment any move is actually played.
   final Move? hintMove;
 
+  /// When set, the board renders this position instead of
+  /// [controller]'s live state -- used for read-only review of a
+  /// finished game's earlier moves. The screen is responsible for
+  /// disabling interaction while reviewing (the caller already wraps
+  /// this widget in an `AbsorbPointer` once the game has ended, which
+  /// covers review mode too, since review only ever starts after a
+  /// game is over).
+  final GameState? reviewState;
+
   const ChessBoardWidget({
     super.key,
     required this.controller,
     required this.humanColor,
     this.hintMove,
+    this.reviewState,
   });
 
   @override
@@ -183,7 +194,10 @@ class _ChessBoardWidgetState extends State<ChessBoardWidget> {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
-        final state = widget.controller.state;
+        // Review mode overrides what's rendered (a historical
+        // position) without touching the live controller at all --
+        // this is purely a display swap.
+        final state = widget.reviewState ?? widget.controller.state;
 
         Position? checkedKingSquare;
         if (state.status == GameStatus.check ||
