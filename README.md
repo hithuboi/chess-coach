@@ -85,42 +85,58 @@ nothing in the codebase is platform-specific.
 
 ```
 lib/
-├── main.dart                  # App entry point, theme + root widget
-
-├── models/                    # Pure data classes — no Flutter, no rules
-│   ├── enums.dart             # PieceType, PieceColor, GameStatus, MoveFlag
-│   ├── piece.dart             # Piece (type, color, hasMoved)
-│   ├── position.dart          # Board coordinate (file, rank)
-│   ├── move.dart              # A single move, incl. SAN rendering
-│   └── game_state.dart        # Full immutable snapshot of a game
-
-├── game_logic/                # Rules engine — pure Dart, fully testable
-│   ├── board.dart              # Board queries + move application
-│   ├── move_generator.dart     # Pseudo-legal move generation
-│   ├── move_validator.dart     # Full legality (own-king-safety check)
-│   ├── check_detector.dart     # Check / checkmate / stalemate / draws
-│   └── game_controller.dart    # Orchestrates a live game (make/undo/restart)
-
-├── engine/                    # Computer opponent
-│   ├── chess_engine.dart       # Abstract interface for any opponent
-│   ├── evaluation.dart         # Static position scoring
-│   └── simple_engine.dart      # v0.1 opponent: minimax + alpha-beta
-
+│
+├── main.dart
+│
+├── models/
+│   ├── enums.dart
+│   ├── piece.dart
+│   ├── position.dart
+│   ├── move.dart
+│   └── game_state.dart
+│
+├── game_logic/
+│   ├── board.dart
+│   ├── move_generator.dart
+│   ├── move_validator.dart
+│   ├── check_detector.dart
+│   ├── game_controller.dart
+│   └── game_save_service.dart
+│
+├── engine/
+│   ├── chess_engine.dart
+│   ├── evaluation.dart
+│   ├── simple_engine.dart
+│   └── move_classifier.dart
+│
+├── coaching/                         # NEW
+│   ├── coaching_engine.dart          # Main coaching brain
+│   ├── coaching_state.dart           # Current coaching state
+│   ├── coaching_event.dart           # Commands/events sent to UI
+│   └── coaching_scenario.dart        # Mistake-specific coaching logic
+│
 ├── ui/
 │   ├── screens/
-│   │   └── game_screen.dart    # Main screen, responsive layout
+│   │   └── game_screen.dart
+│   │
 │   ├── widgets/
 │   │   ├── chess_board_widget.dart
 │   │   ├── chess_square_widget.dart
 │   │   ├── chess_piece_widget.dart
 │   │   ├── move_history_panel.dart
-│   │   └── game_controls_bar.dart
+│   │   ├── game_controls_bar.dart
+│   │   └── coach/                    # NEW
+│   │       ├── coach_bubble.dart
+│   │       ├── coach_question.dart
+│   │       ├── coach_answer_option.dart
+│   │       └── coach_variation.dart
+│   │
 │   └── theme/
-│       └── app_theme.dart      # Material 3 theme, single source of styling
-
+│       └── app_theme.dart
+│
 └── utils/
-    ├── constants.dart          # Shared constants (board size, breakpoints…)
-    └── extensions.dart         # Small helper extensions
+    ├── constants.dart
+    └── extensions.dart
 ```
 
 ## Architecture Notes
