@@ -6,6 +6,8 @@ import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/game_state.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/models/position.dart';
+import 'package:chess_app/engine/move_classifier.dart';
+import 'package:chess_app/models/move_analysis.dart';
 
 /// Orchestrates a single game of chess: applying moves, undo, restart,
 /// and exposing the current state to the UI.
@@ -14,6 +16,12 @@ import 'package:chess_app/models/position.dart';
 /// `ListenableBuilder` without a third-party state-management package.
 class GameController extends ChangeNotifier {
   GameState _state = GameState.initial();
+  
+  final MoveClassifier _moveClassifier = const MoveClassifier();
+
+  MoveAnalysis? _lastMoveAnalysis;
+
+  MoveAnalysis? get lastMoveAnalysis => _lastMoveAnalysis;
 
   /// Stack of previous states, used to support [undo].
   final List<GameState> _undoStack = [];
@@ -48,6 +56,8 @@ class GameController extends ChangeNotifier {
   bool makeMove(Move move) {
     if (_state.isGameOver) return false;
     if (!MoveValidator.isLegalMove(_state, move)) return false;
+
+    _lastMoveAnalysis = _moveClassifier.analyze(_state, move);
 
     _undoStack.add(_state);
 

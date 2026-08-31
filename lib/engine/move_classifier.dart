@@ -6,6 +6,7 @@ import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/game_state.dart';
 import 'package:chess_app/models/move.dart';
 import 'package:chess_app/models/position.dart';
+import 'package:chess_app/models/move_analysis.dart';
 
 /// How a played move compares to the best move available in that
 /// position. Only the two ends of the spectrum are ever labeled --
@@ -55,56 +56,69 @@ class MoveClassifier {
   /// meaningfully computed (e.g. no legal moves existed, which
   /// shouldn't happen for a move that was actually played).
   MoveQuality? classify(GameState stateBeforeMove, Move playedMove) {
-    final color = playedMove.piece.color;
-    final legalMoves = MoveValidator.allLegalMoves(stateBeforeMove, color);
-    if (legalMoves.isEmpty) return null;
+    return analyze(stateBeforeMove, playedMove)?.quality;
+  }
 
-    // A forced move (the only legal option) says nothing about the
-    // player's judgment -- there was no alternative to compare it
-    // against -- so it's left unclassified rather than automatically
-    // credited as Excellent.
-    if (legalMoves.length == 1) return null;
+  MoveAnalysis? analyze(GameState stateBeforeMove, Move playedMove) {
+  final color = playedMove.piece.color;
+  final legalMoves = MoveValidator.allLegalMoves(stateBeforeMove, color);
 
-    final maximizing = color == PieceColor.white;
-    int? bestScore;
-    int? playedScore;
+  if (legalMoves.isEmpty) return null;
 
-    for (final move in legalMoves) {
-      final resultingState = _applyMoveToState(stateBeforeMove, move);
-      final score =
-          _minimax(resultingState, depth - 1, -_infinity, _infinity, !maximizing);
+  if (legalMoves.length == 1) return null;
 
-      if (bestScore == null ||
-          (maximizing ? score > bestScore : score < bestScore)) {
-        bestScore = score;
-      }
-      if (_sameMove(move, playedMove)) {
-        playedScore = score;
-      }
+  final maximizing = color == PieceColor.white;
+
+  int? bestScore;
+  int? playedScore;
+  Move? bestMove;
+
+  for (final move in legalMoves) {
+    final resultingState = _applyMoveToState(stateBeforeMove, move);
+    final score =
+        _minimax(resultingState, depth - 1, -_infinity, _infinity, !maximizing);
+
+    if (bestScore == null ||
+        (maximizing ? score > bestScore : score < bestScore)) {
+      bestScore = score;
+      bestMove = move;
     }
 
-    if (bestScore == null || playedScore == null) return null;
-
-    // How many centipawns worse the played move was than the best
-    // available move, always >= 0 by construction (the best move is,
-    // by definition, at least as good as any other).
-    final centipawnLoss =
-        maximizing ? (bestScore - playedScore) : (playedScore - bestScore);
-
-    // Excellent and Good are deliberately tight bands -- a move has
-    // to be genuinely close to the best available option to earn
-    // either label, so seeing one means something. Anything falling
-    // in the broad middle ground (not close enough to best to praise,
-    // not bad enough to flag) is left unclassified on purpose: not
-    // every move needs a verdict, and a constant stream of labels on
-    // ordinary moves would just be noise. Mistake and Blunder still
-    // catch real errors at the wider end of the scale.
-    if (centipawnLoss <= 10) return MoveQuality.excellent;
-    if (centipawnLoss <= 30) return MoveQuality.good;
-    if (centipawnLoss <= 120) return null;
-    if (centipawnLoss <= 300) return MoveQuality.mistake;
-    return MoveQuality.blunder;
+    if (_sameMove(move, playedMove)) {
+      playedScore = score;
+    }
   }
+
+  if (bestScore == null || playedScore == null || bestMove == null) {
+    return null;
+  }
+
+  final centipawnLoss =
+      maximizing ? (bestScore - playedScore) : (playedScore - bestScore);
+
+  final MoveQuality quality;
+
+  if (centipawnLoss <= 10) {
+    quality = MoveQuality.excellent;
+  } else if (centipawnLoss <= 30) {
+    quality = MoveQuality.good;
+  } else if (centipawnLoss <= 120) {
+    return null;
+  } else if (centipawnLoss <= 300) {
+    quality = MoveQuality.mistake;
+  } else {
+    quality = MoveQuality.blunder;
+  }
+
+  return MoveAnalysis(
+    move: playedMove,
+    quality: quality,
+    bestScore: bestScore,
+    playedScore: playedScore,
+    centipawnLoss: centipawnLoss,
+    bestMove: bestMove,
+  );
+}
 
   bool _sameMove(Move a, Move b) =>
       a.from == b.from &&

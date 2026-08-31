@@ -771,28 +771,39 @@ class _GameScreenState extends State<GameScreen> {
   /// game -- just the two step controls, since Hint and Resign don't
   /// apply once the game is over and being replayed move by move.
   Widget _buildReviewControlsRow() {
-    final history = _reviewMoveHistory;
-    final index = _reviewIndex ?? 0;
-    final canGoBack = index > 0;
-    final canGoForward = history != null && index < history.length;
+  final history = _reviewMoveHistory;
+  final index = _reviewIndex ?? 0;
+  final canGoBack = index > 0;
+  final canGoForward = history != null && index < history.length;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        IconButton.filledTonal(
-          onPressed: canGoBack ? _reviewStepBack : null,
-          tooltip: 'Previous move',
-          icon: const Icon(Icons.undo),
-        ),
-        const SizedBox(width: 16),
-        IconButton.filledTonal(
-          onPressed: canGoForward ? _reviewStepForward : null,
-          tooltip: 'Next move',
-          icon: const Icon(Icons.redo),
-        ),
-      ],
-    );
-  }
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton.filledTonal(
+            onPressed: canGoBack ? _reviewStepBack : null,
+            tooltip: 'Previous move',
+            icon: const Icon(Icons.undo),
+          ),
+          const SizedBox(width: 16),
+          IconButton.filledTonal(
+            onPressed: canGoForward ? _reviewStepForward : null,
+            tooltip: 'Next move',
+            icon: const Icon(Icons.redo),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      FilledButton.icon(
+        onPressed: _startNewGameFlow,
+        icon: const Icon(Icons.add),
+        label: const Text('New Game'),
+      ),
+    ],
+  );
+}
 
   Widget _buildStatusBanner(
     BuildContext context,
