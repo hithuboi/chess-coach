@@ -8,7 +8,7 @@ import 'package:chess_app/models/move.dart';
 import 'package:chess_app/models/position.dart';
 import 'package:chess_app/engine/move_classifier.dart';
 import 'package:chess_app/models/move_analysis.dart';
-
+import 'package:chess_app/coaching/coaching_engine.dart';
 /// Orchestrates a single game of chess: applying moves, undo, restart,
 /// and exposing the current state to the UI.
 ///
@@ -22,6 +22,8 @@ class GameController extends ChangeNotifier {
   MoveAnalysis? _lastMoveAnalysis;
 
   MoveAnalysis? get lastMoveAnalysis => _lastMoveAnalysis;
+
+  final CoachingEngine coachingEngine = CoachingEngine();   //Added this after creating lib/coach, connects coach to game controller, since controller already controls game flow.
 
   /// Stack of previous states, used to support [undo].
   final List<GameState> _undoStack = [];
@@ -58,7 +60,15 @@ class GameController extends ChangeNotifier {
     if (!MoveValidator.isLegalMove(_state, move)) return false;
 
     _lastMoveAnalysis = _moveClassifier.analyze(_state, move);
+    
 
+    // Send the analysis to the coach only when a valid analysis was produced:
+    
+    // Send the analysis to the coach only when a valid analysis was produced:
+    if (_lastMoveAnalysis != null) {
+      // Send the completed move analysis to the coaching engine.
+      coachingEngine.observeMove(_lastMoveAnalysis!);
+    }
     _undoStack.add(_state);
 
     final newSquares = Board.applyMove(_state, move);

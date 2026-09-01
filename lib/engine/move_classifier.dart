@@ -95,6 +95,7 @@ class MoveClassifier {
 
   final centipawnLoss =
       maximizing ? (bestScore - playedScore) : (playedScore - bestScore);
+  
 
   final MoveQuality quality;
 
