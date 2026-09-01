@@ -1,9 +1,18 @@
-# Chess (v0.4.1)
+# Chess (v0.5.0)
 
 A cross-platform chess application built with Flutter, targeting **macOS**
 and **iPadOS** as the primary platforms for this release. The codebase is
 plain Dart/Flutter with no platform-specific code, so it also builds for
 iOS, Android, Windows, Linux, and web with minimal extra setup.
+
+
+
+## Features Added (v0.5.0)
+
+- Added a Coaching Engine to process move analysis and determine when coaching intervention is required.
+- Connected the Coaching Engine to the Game Controller.
+- Added move-quality analysis data to the coaching pipeline, including move quality, centipawn loss, and best-move information.
+- Added coaching states for observing moves and detecting mistakes or blunders.
 
 
 
@@ -38,7 +47,7 @@ iOS, Android, Windows, Linux, and web with minimal extra setup.
 ## Features Added (v0.2.0)
 
 - Save completed games.
-- Review the board upon completion of a game.
+- Review the board upon completion.
 
 
 
@@ -53,11 +62,6 @@ iOS, Android, Windows, Linux, and web with minimal extra setup.
 - Restart (with confirmation)
 - Move history panel in standard algebraic notation
 - Clean Material 3 interface, light/dark mode following system appearance
-
-
-
-
-
 ## Getting Started
 
 ```bash
