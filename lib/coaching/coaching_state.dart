@@ -17,12 +17,13 @@
 // showingExplanation
 //   ↓
 // Coach demonstrates the better move/line and explains the mistake.
-import 'package:chess_app/coaching/coaching_engine.dart';
 
 enum CoachingState {
-  idle,
-  observing,
-  mistakeDetected,
-  askingWhy,
-  showingExplanation,
+  
+  idle, /// Nothing for the coach to do.
+  observing, /// The game is being played and the coach is watching moves.
+  mistakeDetected, /// A move has been classified as a mistake or blunder.
+  askingWhy, /// The coach is asking the player why they made the move.
+  showingExplanation, /// The coach is demonstrating and explaining a better move or line.
+
 }

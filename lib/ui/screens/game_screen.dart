@@ -13,6 +13,8 @@ import 'package:chess_app/ui/widgets/chess_board_widget.dart';
 import 'package:chess_app/ui/widgets/move_history_panel.dart';
 import 'package:chess_app/utils/constants.dart';
 import 'package:chess_app/utils/extensions.dart';
+import 'package:chess_app/models/move_analysis.dart';
+import 'package:chess_app/coaching/coaching_state.dart';
 
 /// The main (and, in v0.1, only) screen: assembles the board, move
 /// history, and controls, and drives the computer opponent's turns.
@@ -113,15 +115,37 @@ class _GameScreenState extends State<GameScreen> {
   void initState() {
     super.initState();
     _controller.addListener(_onGameStateChanged);
+    // Listen for coaching-state changes so the UI rebuilds when the
+    // coach detects a mistake, blunder, or other coaching event.
+    _controller.coachingEngine.addListener(_onCoachingStateChanged);
     // Ask which color to play as before the very first game, same as
     // every subsequent "New Game" -- deferred to after the first frame
     // so the dialog's context is ready.
     WidgetsBinding.instance.addPostFrameCallback((_) => _startNewGameFlow());
   }
+  /// Responds to changes from the coaching engine.
+  ///
+  /// The coaching engine has its own ChangeNotifier because coaching
+  /// state is separate from the normal chess game state. For now we
+  /// simply rebuild the UI when a new coaching event is received.
+  /// The actual coaching message will be added in the next step.
+  void _onCoachingStateChanged() {
+    if (!mounted) return;
+  
+    setState(() {});
+  }
+
 
   @override
+
   void dispose() {
     _controller.removeListener(_onGameStateChanged);
+
+    // Stop listening to the coaching engine when this screen is
+    // destroyed so the controller cannot trigger updates on a
+    // screen that no longer exists.
+    _controller.coachingEngine.removeListener(_onCoachingStateChanged);
+
     super.dispose();
   }
 
@@ -691,7 +715,80 @@ class _GameScreenState extends State<GameScreen> {
       ],
     );
   }
+  Widget _buildCoachCard(BuildContext context) {
+    final coachingEngine = _controller.coachingEngine;
+    final analysis = coachingEngine.currentAnalysis;
+    final coachingState = coachingEngine.state;
 
+    // Nothing to show until the coach has received an analysis.
+    if (analysis == null) {
+      return const SizedBox.shrink();
+    }
+
+    // The coach only needs to intervene for mistakes and blunders.
+    if (coachingState != CoachingState.mistakeDetected) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+
+    final isBlunder = analysis.quality == MoveQuality.blunder;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isBlunder
+                    ? Icons.warning_rounded
+                    : Icons.warning_amber_rounded,
+                color: theme.colorScheme.onErrorContainer,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isBlunder ? 'Blunder' : 'Mistake',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Move: ${analysis.move}',
+            style: TextStyle(
+              color: theme.colorScheme.onErrorContainer,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Centipawn loss: ${analysis.centipawnLoss}',
+            style: TextStyle(
+              color: theme.colorScheme.onErrorContainer,
+            ),
+          ),
+          if (analysis.bestMove != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Best move: ${analysis.bestMove}',
+              style: TextStyle(
+                color: theme.colorScheme.onErrorContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
   Widget _buildSidePanel(BuildContext context) {
     return ListenableBuilder(
       listenable: _controller,
