@@ -1,7 +1,12 @@
 name: chess_app
+
 description: A cross-platform chess application for macOS and iPadOS.
+
 publish_to: 'none'
-version: 0.1.0
+
+# Version 0.5.1 marks the current development build, including
+# the coaching foundation and the threefold-repetition fix.
+version: 0.5.1+6
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -9,6 +14,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   cupertino_icons: ^1.0.6
   path_provider: ^2.1.4
 
@@ -19,5 +25,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/pieces/
