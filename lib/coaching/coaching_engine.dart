@@ -28,7 +28,8 @@ class CoachingEngine extends ChangeNotifier {
   void observeMove(MoveAnalysis analysis) {
     _currentAnalysis = analysis;
 
-    // Decide whether the latest move requires the coach to intervene.
+    // Mistakes and blunders require the player to acknowledge
+    // the coaching message before the game can continue.
     switch (analysis.quality) {
       case MoveQuality.excellent:
       case MoveQuality.good:
@@ -41,14 +42,15 @@ class CoachingEngine extends ChangeNotifier {
         break;
     }
 
-    // Temporary verification: confirm that the coach receives each move analysis.
-    debugPrint(
-      'Coach received an analysis '
-      '| Quality: ${analysis.quality} '
-      '| CPL: ${analysis.centipawnLoss} '
-      '| Best move: ${analysis.bestMove}',
-    );
+    notifyListeners();
+  }
 
+  /// Dismisses the current coaching intervention.
+  ///
+  /// The game screen uses this when the player has finished reading
+  /// the mistake explanation and presses the OK button.
+  void acknowledge() {
+    _state = CoachingState.observing;
     notifyListeners();
   }
 }

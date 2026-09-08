@@ -64,11 +64,7 @@ class GameController extends ChangeNotifier {
 
     // Send the analysis to the coach only when a valid analysis was produced:
     
-    // Send the analysis to the coach only when a valid analysis was produced:
-    if (_lastMoveAnalysis != null) {
-      // Send the completed move analysis to the coaching engine.
-      coachingEngine.observeMove(_lastMoveAnalysis!);
-    }
+    
     _undoStack.add(_state);
 
     final newSquares = Board.applyMove(_state, move);
@@ -104,15 +100,30 @@ class GameController extends ChangeNotifier {
             .isNotEmpty;
     final isCheckmate = opponentInCheck && !opponentHasLegalMoves;
 
+    // Record the move before checking the resulting game status.
+    // Threefold-repetition detection needs the complete move history,
+    // including the move that was just played.
     final recordedMove = move.copyWith(
       isCheck: opponentInCheck,
       isCheckmate: isCheckmate,
     );
 
-    final status = CheckDetector.statusFor(intermediateState);
+    final updatedMoveHistory = [
+      ..._state.moveHistory,
+      recordedMove,
+    ];
 
-    _state = intermediateState.copyWith(
-      moveHistory: [..._state.moveHistory, recordedMove],
+    // Give CheckDetector the state AFTER the move and with the
+    // newly updated move history included.
+    final stateForStatus = intermediateState.copyWith(
+      moveHistory: updatedMoveHistory,
+    );
+
+    final status = CheckDetector.statusFor(stateForStatus);
+
+    // Store the fully updated state, including the new move and
+    // the status calculated from that complete state.
+    _state = stateForStatus.copyWith(
       status: status,
     );
 

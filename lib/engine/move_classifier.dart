@@ -5,9 +5,8 @@ import 'package:chess_app/game_logic/move_validator.dart';
 import 'package:chess_app/models/enums.dart';
 import 'package:chess_app/models/game_state.dart';
 import 'package:chess_app/models/move.dart';
-import 'package:chess_app/models/position.dart';
 import 'package:chess_app/models/move_analysis.dart';
-import 'package:flutter/foundation.dart';
+import 'package:chess_app/models/position.dart';
 
 /// How a played move compares to the best move available in that
 /// position.
@@ -22,7 +21,7 @@ enum MoveQuality {
 /// against the best evaluation achievable from the same position.
 ///
 /// The classifier also performs basic mistake categorisation so the
-/// coaching system can eventually explain the type of error made.
+/// coaching system can explain the type of error made.
 class MoveClassifier {
   /// Search depth used when scoring candidate moves.
   final int depth;
@@ -33,7 +32,10 @@ class MoveClassifier {
 
   /// Classifies [playedMove] using the same analysis performed by
   /// [analyze].
-  MoveQuality? classify(GameState stateBeforeMove, Move playedMove) {
+  MoveQuality? classify(
+    GameState stateBeforeMove,
+    Move playedMove,
+  ) {
     return analyze(stateBeforeMove, playedMove)?.quality;
   }
 
@@ -45,12 +47,16 @@ class MoveClassifier {
   ) {
     final color = playedMove.piece.color;
 
-    final legalMoves =
-        MoveValidator.allLegalMoves(stateBeforeMove, color);
+    final legalMoves = MoveValidator.allLegalMoves(
+      stateBeforeMove,
+      color,
+    );
 
-    if (legalMoves.isEmpty) return null;
-
-    if (legalMoves.length == 1) return null;
+    // There is nothing useful to classify if there are no legal
+    // moves or only one legal move was available.
+    if (legalMoves.isEmpty || legalMoves.length == 1) {
+      return null;
+    }
 
     final maximizing = color == PieceColor.white;
 
@@ -58,9 +64,12 @@ class MoveClassifier {
     int? playedScore;
     Move? bestMove;
 
+    // Evaluate every legal move to find the best available move.
     for (final move in legalMoves) {
-      final resultingState =
-          _applyMoveToState(stateBeforeMove, move);
+      final resultingState = _applyMoveToState(
+        stateBeforeMove,
+        move,
+      );
 
       final score = _minimax(
         resultingState,
@@ -70,6 +79,7 @@ class MoveClassifier {
         !maximizing,
       );
 
+      // Keep track of the best move available in the position.
       if (bestScore == null ||
           (maximizing
               ? score > bestScore
@@ -78,6 +88,7 @@ class MoveClassifier {
         bestMove = move;
       }
 
+      // Store the score of the move that was actually played.
       if (_sameMove(move, playedMove)) {
         playedScore = score;
       }
@@ -89,9 +100,11 @@ class MoveClassifier {
       return null;
     }
 
+    // Calculate how many centipawns were lost compared with the
+    // best move.
     final centipawnLoss = maximizing
-        ? (bestScore - playedScore)
-        : (playedScore - bestScore);
+        ? bestScore - playedScore
+        : playedScore - bestScore;
 
     final MoveQuality quality;
 
@@ -109,21 +122,19 @@ class MoveClassifier {
     }
 
     // Build the position after the player's move so we can inspect
-    // what the move actually allowed the opponent to do.
-    final resultingState =
-        _applyMoveToState(stateBeforeMove, playedMove);
+    // what the move allowed the opponent to do.
+    final resultingState = _applyMoveToState(
+      stateBeforeMove,
+      playedMove,
+    );
 
     // Determine the type of mistake after the move has been
-    // classified as a genuine mistake or blunder.
+    // classified as a mistake or blunder.
     final mistakeCategory = _categorizeMistake(
       stateBeforeMove,
       resultingState,
       playedMove,
       bestMove,
-    );
-    // Temporary verification: print the category detected for this move.
-    debugPrint(
-      'Mistake category: $mistakeCategory',
     );
 
     return MoveAnalysis(
@@ -141,84 +152,136 @@ class MoveClassifier {
 
   /// Determines the most useful category for a mistake.
   ///
-  /// The checks are deliberately ordered from concrete tactical
-  /// evidence to broader behavioural patterns. If none of the
-  /// currently reliable patterns match, the category remains null
-  /// rather than assigning an inaccurate explanation.
+  /// The checks are ordered from concrete tactical evidence to
+  /// broader behavioural patterns.
   MistakeCategory? _categorizeMistake(
     GameState stateBeforeMove,
     GameState stateAfterMove,
     Move playedMove,
     Move bestMove,
   ) {
-    // First check whether the move immediately left the moved piece
-    // capturable by the opponent.
+    // Check whether the moved piece was genuinely left hanging.
     if (_isHangingPiece(stateAfterMove, playedMove)) {
       return MistakeCategory.hangingPiece;
     }
 
-    // If the engine's best alternative was a capture while the
-    // player did not capture, treat the move as a missed capture.
+    // If the best alternative was a capture while the player did
+    // not capture, classify the move as a missed capture.
     if (!playedMove.isCapture && bestMove.isCapture) {
       return MistakeCategory.missedCapture;
     }
 
     // If the best alternative gave check while the played move did
-    // not, classify it as a missed checking opportunity.
+    // not, classify the move as a missed checking opportunity.
     if (!playedMove.isCheck && bestMove.isCheck) {
       return MistakeCategory.missedCheck;
     }
 
     // Detect repeated queen moves using the existing game history.
-    if (_isRepeatedQueenMove(stateBeforeMove, playedMove)) {
+    if (_isRepeatedQueenMove(
+      stateBeforeMove,
+      playedMove,
+    )) {
       return MistakeCategory.repeatedQueenMoves;
     }
 
-    // These categories require deeper positional understanding.
-    // They will be implemented in later coaching builds instead
-    // of being guessed from insufficient information.
+    // More advanced positional categories will be implemented
+    // in later coaching builds.
     return null;
   }
 
-  /// Checks whether the piece just moved can immediately be captured
-  /// by the opponent.
+  /// Checks whether the piece just moved is genuinely hanging.
   ///
-  /// This is a deliberately simple first version of "hanging piece":
-  /// the opponent must have a legal capture onto the moved piece's
-  /// destination square.
+  /// A piece being capturable does not automatically mean it was
+  /// hung because the player may have intentionally sacrificed it.
+  /// Therefore, the opponent's capture must also be close to the
+  /// opponent's best available response.
   bool _isHangingPiece(
     GameState stateAfterMove,
     Move playedMove,
   ) {
     final opponent = playedMove.piece.color.opposite;
 
-    final opponentMoves =
-        MoveValidator.allLegalMoves(stateAfterMove, opponent);
+    final opponentMoves = MoveValidator.allLegalMoves(
+      stateAfterMove,
+      opponent,
+    );
 
+    if (opponentMoves.isEmpty) {
+      return false;
+    }
+
+    final opponentMaximizing = opponent == PieceColor.white;
+
+    int? bestOpponentScore;
+    int? captureScore;
+
+    // Compare the capture of the moved piece against the
+    // opponent's best available response.
     for (final move in opponentMoves) {
+      final nextState = _applyMoveToState(
+        stateAfterMove,
+        move,
+      );
+
+      // Score the position from the opponent's perspective.
+      final score = _minimax(
+        nextState,
+        depth - 1,
+        -_infinity,
+        _infinity,
+        !opponentMaximizing,
+      );
+
+      // Find the opponent's best response.
+      if (bestOpponentScore == null ||
+          (opponentMaximizing
+              ? score > bestOpponentScore
+              : score < bestOpponentScore)) {
+        bestOpponentScore = score;
+      }
+
+      // Remember the score of a move that captures the piece
+      // that the player just moved.
       if (move.isCapture && move.to == playedMove.to) {
-        return true;
+        captureScore = score;
       }
     }
 
-    return false;
+    // The moved piece is not hanging if the opponent cannot capture
+    // it or no best response could be determined.
+    if (bestOpponentScore == null || captureScore == null) {
+      return false;
+    }
+
+    // Allow a small evaluation difference because multiple
+    // practically equivalent responses may exist.
+    const acceptableDifference = 50;
+
+    final difference = opponentMaximizing
+        ? bestOpponentScore - captureScore
+        : captureScore - bestOpponentScore;
+
+    return difference <= acceptableDifference;
   }
 
-  /// Checks whether the player has moved the queen repeatedly in the
-  /// recent move history.
+  /// Checks whether the player has moved the queen repeatedly in
+  /// the recent move history.
   ///
-  /// This first version looks at the immediately preceding player
-  /// move. More advanced repetition tracking will be added later.
+  /// This first version checks only the immediately preceding move.
+  /// More advanced repetition tracking will be added later.
   bool _isRepeatedQueenMove(
     GameState stateBeforeMove,
     Move playedMove,
   ) {
+    // The current move must be a queen move.
     if (playedMove.piece.type != PieceType.queen) {
       return false;
     }
 
     final history = stateBeforeMove.moveHistory;
 
+    // There is no previous move to compare against.
     if (history.isEmpty) {
       return false;
     }
@@ -229,12 +292,18 @@ class MoveClassifier {
         previousMove.piece.type == PieceType.queen;
   }
 
-  bool _sameMove(Move a, Move b) =>
-      a.from == b.from &&
-      a.to == b.to &&
-      a.flag == b.flag &&
-      a.promotesTo == b.promotesTo;
+  /// Checks whether two moves represent the same move.
+  bool _sameMove(
+    Move a,
+    Move b,
+  ) {
+    return a.from == b.from &&
+        a.to == b.to &&
+        a.flag == b.flag &&
+        a.promotesTo == b.promotesTo;
+  }
 
+  /// Performs a shallow minimax search with alpha-beta pruning.
   int _minimax(
     GameState state,
     int remainingDepth,
@@ -244,12 +313,14 @@ class MoveClassifier {
   ) {
     final sideToMove = state.turnToMove;
 
-    // At the search horizon, only "does any legal move exist" matters
-    // so checkmate and stalemate are scored correctly.
+    // At the search horizon, checkmate and stalemate still need to
+    // be handled correctly before using the static evaluation.
     if (remainingDepth == 0) {
       if (!_hasAnyLegalMove(state, sideToMove)) {
-        final inCheck =
-            MoveValidator.isInCheck(state, sideToMove);
+        final inCheck = MoveValidator.isInCheck(
+          state,
+          sideToMove,
+        );
 
         if (inCheck) {
           final mateScore = _infinity - depth;
@@ -262,12 +333,17 @@ class MoveClassifier {
       return Evaluation.evaluate(state);
     }
 
-    final legalMoves =
-        MoveValidator.allLegalMoves(state, sideToMove);
+    final legalMoves = MoveValidator.allLegalMoves(
+      state,
+      sideToMove,
+    );
 
+    // Handle checkmate and stalemate when there are no legal moves.
     if (legalMoves.isEmpty) {
-      final inCheck =
-          MoveValidator.isInCheck(state, sideToMove);
+      final inCheck = MoveValidator.isInCheck(
+        state,
+        sideToMove,
+      );
 
       if (inCheck) {
         final mateScore =
@@ -283,8 +359,10 @@ class MoveClassifier {
       var value = -_infinity;
 
       for (final move in legalMoves) {
-        final nextState =
-            _applyMoveToState(state, move);
+        final nextState = _applyMoveToState(
+          state,
+          move,
+        );
 
         final score = _minimax(
           nextState,
@@ -294,10 +372,18 @@ class MoveClassifier {
           false,
         );
 
-        if (score > value) value = score;
-        if (value > alpha) alpha = value;
+        if (score > value) {
+          value = score;
+        }
 
-        if (beta <= alpha) break;
+        if (value > alpha) {
+          alpha = value;
+        }
+
+        // Alpha-beta pruning.
+        if (beta <= alpha) {
+          break;
+        }
       }
 
       return value;
@@ -305,8 +391,10 @@ class MoveClassifier {
       var value = _infinity;
 
       for (final move in legalMoves) {
-        final nextState =
-            _applyMoveToState(state, move);
+        final nextState = _applyMoveToState(
+          state,
+          move,
+        );
 
         final score = _minimax(
           nextState,
@@ -316,10 +404,18 @@ class MoveClassifier {
           true,
         );
 
-        if (score < value) value = score;
-        if (value < beta) beta = value;
+        if (score < value) {
+          value = score;
+        }
 
-        if (beta <= alpha) break;
+        if (value < beta) {
+          beta = value;
+        }
+
+        // Alpha-beta pruning.
+        if (beta <= alpha) {
+          break;
+        }
       }
 
       return value;
@@ -331,9 +427,17 @@ class MoveClassifier {
     GameState state,
     PieceColor color,
   ) {
-    for (final move
-        in MoveGenerator.allPseudoLegalMoves(state, color)) {
-      if (!MoveValidator.leavesOwnKingInCheck(state, move)) {
+    final pseudoLegalMoves =
+        MoveGenerator.allPseudoLegalMoves(
+      state,
+      color,
+    );
+
+    for (final move in pseudoLegalMoves) {
+      if (!MoveValidator.leavesOwnKingInCheck(
+        state,
+        move,
+      )) {
         return true;
       }
     }
@@ -346,19 +450,24 @@ class MoveClassifier {
     GameState state,
     Move move,
   ) {
-    final newSquares =
-        Board.applyMove(state, move);
+    final newSquares = Board.applyMove(
+      state,
+      move,
+    );
 
     final movingColor = move.piece.color;
 
     Position? newEnPassantTarget;
 
+    // A double pawn push creates a new en-passant target square.
     if (move.flag == MoveFlag.doublePawnPush) {
       final direction =
           movingColor == PieceColor.white ? -1 : 1;
 
-      newEnPassantTarget =
-          move.to.offset(0, direction);
+      newEnPassantTarget = move.to.offset(
+        0,
+        direction,
+      );
     }
 
     return state.copyWith(

@@ -13,7 +13,6 @@ import 'package:chess_app/ui/widgets/chess_board_widget.dart';
 import 'package:chess_app/ui/widgets/move_history_panel.dart';
 import 'package:chess_app/utils/constants.dart';
 import 'package:chess_app/utils/extensions.dart';
-import 'package:chess_app/models/move_analysis.dart';
 import 'package:chess_app/coaching/coaching_state.dart';
 
 /// The main (and, in v0.1, only) screen: assembles the board, move
@@ -38,6 +37,10 @@ class _GameScreenState extends State<GameScreen> {
   /// first choice is made.
   PieceColor _humanColor = PieceColor.white;
   PieceColor get _computerColor => _humanColor.opposite;
+
+  /// True while the coach is waiting for the player to acknowledge
+  /// a mistake before allowing the computer to make its reply.
+  bool _waitingForCoachAcknowledgement = false;
 
   /// True while the computer is "thinking".
   bool _computerIsThinking = false;
@@ -149,57 +152,106 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
+  /// Responds to changes in the chess game state.
+  ///
+  /// Human moves are analysed before the computer is allowed to reply.
+  /// If the move is a mistake or blunder, the game pauses until the
+  /// player reads the coaching message and presses OK.
   void _onGameStateChanged() {
     final state = _controller.state;
 
     // A hint is only valid for the exact position it was computed
-    // for -- the instant that position changes, for any reason (a
-    // move played, an undo, a new game), the suggestion is stale and
-    // must be cleared rather than pointing at squares that no longer
-    // mean what they used to.
+    // for. Any game-state change makes the previous hint stale.
     if (_hintMove != null) {
       setState(() => _hintMove = null);
     }
 
-    // Drop classification entries for any moves that no longer exist
-    // (e.g. after an undo) -- cheap, and keeps the map from ever
-    // referring to a move index that's since been replaced.
-    _moveQualities.removeWhere((index, _) => index >= state.moveHistory.length);
+    // Remove classifications for moves that no longer exist,
+    // such as after an undo.
+    _moveQualities.removeWhere(
+      (index, _) => index >= state.moveHistory.length,
+    );
 
-    // If the move that was just played belongs to the human, classify
-    // it in the background (after this frame paints) so the move
-    // itself still reflects on the board instantly. Checked before the
-    // isGameOver branch below so a game-ending move (e.g. delivering
-    // checkmate) still gets classified rather than being skipped.
-    // Skipped entirely during an undo -- there's no new move to
-    // classify, only an old one being removed.
-    final lastMove = state.moveHistory.isNotEmpty ? state.moveHistory.last : null;
+    final lastMove =
+        state.moveHistory.isNotEmpty ? state.moveHistory.last : null;
     final previous = _controller.previousState;
+
+    // Human moves must be analysed before the computer replies.
+    // This gives the coach a chance to pause the game when necessary.
     if (!_isUndoing &&
         lastMove != null &&
         previous != null &&
         lastMove.piece.color == _humanColor) {
       final moveIndex = state.moveHistory.length - 1;
+
+      // Temporarily prevent the computer from moving while the
+      // human's move is being analysed.
+      _waitingForCoachAcknowledgement = true;
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final quality = _moveClassifier.classify(previous, lastMove);
-        if (quality != null) {
-          setState(() => _moveQualities[moveIndex] = quality);
+
+        // Analyse the human player's move so both the move history
+        // and coaching system use the same analysis result.
+        final analysis = _moveClassifier.analyze(
+          previous,
+          lastMove,
+        );
+
+        if (analysis != null) {
+          // Store the move quality for the move history panel.
+          setState(() {
+            _moveQualities[moveIndex] = analysis.quality;
+          });
+
+          // Give the analysis to the coaching engine.
+          _controller.coachingEngine.observeMove(analysis);
+
+          // Mistakes and blunders pause the game. The OK button will
+          // clear this state and start the computer's reply.
+          if (analysis.quality == MoveQuality.mistake ||
+              analysis.quality == MoveQuality.blunder) {
+            return;
+          }
+        }
+
+        // No coaching intervention is required, so the computer
+        // can continue immediately after the analysis completes.
+        _waitingForCoachAcknowledgement = false;
+
+        if (_controller.state.turnToMove == _computerColor &&
+            !_computerIsThinking) {
+          _triggerComputerMove();
         }
       });
+
+      // Do not allow the normal computer-move logic below to run
+      // before the human move has finished being analysed.
+      return;
     }
 
     if (state.isGameOver) {
       if (!_hasShownGameOverDialog) {
         _hasShownGameOverDialog = true;
+
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _showGameOverDialog(state.status, state.turnToMove);
+          if (mounted) {
+            _showGameOverDialog(
+              state.status,
+              state.turnToMove,
+            );
+          }
         });
       }
+
       return;
     }
 
+    // The computer normally moves automatically after its turn
+    // begins, unless the coach is currently waiting for the player's
+    // acknowledgement.
     if (!_isUndoing &&
+        !_waitingForCoachAcknowledgement &&
         state.turnToMove == _computerColor &&
         !_computerIsThinking) {
       _triggerComputerMove();
@@ -715,6 +767,12 @@ class _GameScreenState extends State<GameScreen> {
       ],
     );
   }
+  /// Builds the coaching intervention shown when the player makes
+  /// a mistake or blunder.
+  ///
+  /// The OK button is intentionally part of the coaching flow:
+  /// the computer does not make its reply until the player has
+  /// acknowledged the feedback.
   Widget _buildCoachCard(BuildContext context) {
     final coachingEngine = _controller.coachingEngine;
     final analysis = coachingEngine.currentAnalysis;
@@ -725,13 +783,13 @@ class _GameScreenState extends State<GameScreen> {
       return const SizedBox.shrink();
     }
 
-    // The coach only needs to intervene for mistakes and blunders.
+    // Only display the card while the coach is actively waiting
+    // for the player to acknowledge a mistake.
     if (coachingState != CoachingState.mistakeDetected) {
       return const SizedBox.shrink();
     }
 
     final theme = Theme.of(context);
-
     final isBlunder = analysis.quality == MoveQuality.blunder;
 
     return Container(
@@ -761,20 +819,25 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 10),
+
           Text(
             'Move: ${analysis.move}',
             style: TextStyle(
               color: theme.colorScheme.onErrorContainer,
             ),
           ),
+
           const SizedBox(height: 4),
+
           Text(
             'Centipawn loss: ${analysis.centipawnLoss}',
             style: TextStyle(
               color: theme.colorScheme.onErrorContainer,
             ),
           ),
+
           if (analysis.bestMove != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -785,28 +848,82 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
           ],
+
+          const SizedBox(height: 12),
+
+          // The player must explicitly acknowledge the coaching
+          // message before the computer is allowed to continue.
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _onCoachAcknowledged,
+              child: const Text('OK'),
+            ),
+          ),
         ],
       ),
     );
   }
+  /// Handles the player's acknowledgement of the coaching message.
+  ///
+  /// The coaching card is dismissed first, then the computer is
+  /// allowed to make its pending reply.
+  void _onCoachAcknowledged() {
+    // Tell the coaching engine that the player has finished reading
+    // the current intervention.
+    _controller.coachingEngine.acknowledge();
+
+    // Allow the computer to continue with its pending turn.
+    _waitingForCoachAcknowledgement = false;
+
+    // Start the computer's reply only after the player presses OK.
+    if (_controller.state.turnToMove == _computerColor &&
+        !_computerIsThinking &&
+        !_controller.state.isGameOver) {
+      _triggerComputerMove();
+    }
+  }
+  /// Builds the right-side panel containing the game status,
+  /// coaching feedback, move history, and controls.
   Widget _buildSidePanel(BuildContext context) {
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
         final state = _controller.state;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildStatusBanner(context, state.status, state.turnToMove),
+            // Show the current game status first.
+            _buildStatusBanner(
+              context,
+              state.status,
+              state.turnToMove,
+            ),
+
             const SizedBox(height: 12),
+
+            // Show coaching feedback when the coach detects
+            // a mistake or blunder.
+            _buildCoachCard(context),
+
+            const SizedBox(height: 12),
+
+            // Keep the move history in the remaining space.
             Expanded(
               child: MoveHistoryPanel(
                 moves: _controller.moveHistory,
                 moveQualities: _moveQualities,
               ),
             ),
+
             const SizedBox(height: 12),
-            _isReviewingGame ? _buildReviewControlsRow() : _buildControlsRow(),
+
+            // Show review controls when reviewing a finished game;
+            // otherwise show the normal game controls.
+            _isReviewingGame
+                ? _buildReviewControlsRow()
+                : _buildControlsRow(),
           ],
         );
       },
